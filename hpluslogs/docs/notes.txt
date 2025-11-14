@@ -1,0 +1,254 @@
+# Semantic Search RAG System for hplusroadmap IRC Logs
+
+## Introduction
+
+The **hplusroadmap** community publishes daily IRC logs at `https://gnusha.org/logs/`.  These logs contain a mix of announcements, URL mentions and lively debates on biohacking and transhumanist technology.  This project aims to build a **semantic search and retrieval‑augmented generation (RAG)** system over the logs using OpenRouter’s **Qwen3** embeddings and chat models.  The goal is to index the entire archive, allow fast semantic search, and generate answers or summaries using models such as **Moonshot Kimi K2** and the larger **Qwen3** series.  To keep costs manageable the system should estimate token counts with **tiktoken** before submitting requests, and the user should be able to configure a cost cap via a command‑line switch.
+
+## Why RAG and how to do it
+
+Large language models excel at reasoning but forget factual details or introduce hallucinations.  **Retrieval‑augmented generation** combines a retriever (which finds relevant documents) with a generator (which synthesises an answer).  Recent research highlights several best‑practice guidelines:
+
+* **Chunking with overlaps:**  Splitting documents into overlapping windows preserves context without including too much irrelevant information.  The EMNLP 2024 study on RAG notes that advanced chunking techniques such as **small‑to‑big** and **sliding windows** maintain context and improve retrieval quality:contentReference[oaicite:0]{index=0}.  The study uses a base chunk size of 175 tokens with a 20‑token overlap when testing sliding windows:contentReference[oaicite:1]{index=1}.
+* **Metadata and enrichment:**  Adding metadata such as titles, keywords or hypothetical questions improves retrieval:contentReference[oaicite:2]{index=2}.  Query‑based summarisation can remove redundant information and improve generation; best‑practice surveys recommend summarisation modules to address long prompts:contentReference[oaicite:3]{index=3}.
+* **Vector database selection:**  The same study compares Weaviate, Faiss, Chroma, Qdrant and Milvus and concludes that **Milvus** stands out for its flexibility, scalability and hybrid search capabilities:contentReference[oaicite:4]{index=4}.  For a lightweight deployment, **Chroma** or **Qdrant** can be used instead.
+* **Retrieval strategies:**  Hybrid retrieval (dense embeddings plus sparse BM25) often performs well; pseudo‑document methods like HyDE can improve performance but increase latency:contentReference[oaicite:5]{index=5}.  Reranking with models such as MonoT5 or TILDE improves relevance:contentReference[oaicite:6]{index=6}.
+* **Summarisation and query classification:**  Summarisation modules reduce prompt length and remove noise:contentReference[oaicite:7]{index=7}.  Query classification avoids retrieval for tasks that do not need it:contentReference[oaicite:8]{index=8}.
+
+## Tool chain
+
+| Component | Chosen tool | Rationale |
+|---|---|---|
+| **Package/environment manager** | `uv` | A high‑performance, drop‑in replacement for pip written in Rust.  It is 8–10× faster than pip and pip‑tools without caching, and up to **80–115× faster** with a warm cache:contentReference[oaicite:9]{index=9}.  It supports virtual environments (`uv venv`) and pip‑style commands (`uv pip install`):contentReference[oaicite:10]{index=10}. |
+| **HTTP & CLI** | `requests`, `click` |  `requests` provides robust HTTP downloads; `click` makes it easy to define CLI commands and options. |
+| **Token counting** | `tiktoken` |  A fast BPE tokenizer.  The README shows how to obtain an encoding and count tokens by calling `enc.encode()`:contentReference[oaicite:11]{index=11}.  Token counts allow cost estimation for embedding requests. |
+| **Embeddings provider** | OpenRouter API with `openai` client |  OpenRouter exposes many models through an OpenAI‑compatible API.  A Snyk article demonstrates how to create an `OpenAI` client with `base_url="https://openrouter.ai/api/v1"` and `HTTP‑Referer` headers:contentReference[oaicite:12]{index=12}.  The Qwen3 embedding model costs **$0.01 per million tokens**:contentReference[oaicite:13]{index=13}. |
+| **LLM provider** | `litellm` with OpenRouter (Moonshot K2, Qwen3) |  `litellm` wraps multiple OpenAI‑style providers and supports streaming.  Using OpenRouter models such as Moonshot K2 and Qwen3 ensures access to advanced LLMs through a single API key. |
+| **Vector database** | Chroma (default) or Qdrant |  Chroma provides a simple local storage backend using DuckDB; Qdrant offers persistent storage.  The EMNLP paper notes that Milvus offers the most features:contentReference[oaicite:14]{index=14}, but Chroma is sufficient for local experimentation. |
+| **Web framework** | Tornado |  A lightweight asynchronous framework suitable for building custom endpoints.  As the final interface is simple, Tornado’s built‑in HTTP server suffices. |
+
+## Architecture overview
+
+1. **Data acquisition:**  A downloader retrieves daily logs from `https://gnusha.org/logs/YYYY-MM-DD.log` :contentReference[oaicite:15]{index=15}.  The CLI stores them under a `data/raw` directory and supports resumable downloads.
+2. **Preprocessing:**  Each log is parsed into `(timestamp, message)` pairs.  Join/quit events are ignored; only user messages (lines containing `<nickname>` and `>`) are retained.  The messages are concatenated into overlapping chunks of ~175 tokens with a 20‑token overlap:contentReference[oaicite:16]{index=16}.  Optional enrichment uses a larger LLM to summarise each chunk, following recommendations to reduce redundant context:contentReference[oaicite:17]{index=17}.
+3. **Embedding:**  The system counts tokens using tiktoken (via `encoding.encode()`):contentReference[oaicite:18]{index=18} and estimates cost at $0.01/M tokens:contentReference[oaicite:19]{index=19}.  If the estimated cost exceeds the user’s budget (specified with `--cost-limit`), the operation is aborted.  Otherwise, each chunk is embedded with the Qwen3 embedding model via OpenRouter.  Embeddings and metadata (log file, index, line range) are stored in a Chroma collection.
+4. **Retrieval & generation:**  Queries are embedded with Qwen3 embeddings.  The vector database is searched for the top‑k nearest chunks.  These excerpts are concatenated into a context string.  A prompt combining the user’s question and the retrieved context is sent to an LLM (Moonshot K2 or Qwen3‑chat) via `litellm`.  The answer is returned.
+5. **Web application:**  A Tornado server exposes a `/search` endpoint.  It accepts a JSON body with a `query`, performs retrieval and generation, and returns a JSON response with the answer.  The asynchronous server offloads blocking API calls to a thread pool.
+
+
+Semantic Search RAG System for hplusroadmap IRC Logs
+Introduction
+
+The hplusroadmap community publishes daily IRC logs at https://gnusha.org/logs/. These logs contain a mix of announcements, URL mentions and lively debates on biohacking and transhumanist technology. This project aims to build a semantic search and retrieval‑augmented generation (RAG) system over the logs using OpenRouter’s Qwen3 embeddings and chat models. The goal is to index the entire archive, allow fast semantic search, and generate answers or summaries using models such as Moonshot Kimi K2 and the larger Qwen3 series. To keep costs manageable the system should estimate token counts with tiktoken before submitting requests, and the user should be able to configure a cost cap via a command‑line switch.
+
+Why RAG and how to do it
+
+Large language models excel at reasoning but forget factual details or introduce hallucinations. Retrieval‑augmented generation combines a retriever (which finds relevant documents) with a generator (which synthesises an answer). Recent research highlights several best‑practice guidelines:
+
+Chunking with overlaps: Splitting documents into overlapping windows preserves context without including too much irrelevant information. The EMNLP 2024 study on RAG notes that advanced chunking techniques such as small‑to‑big and sliding windows maintain context and improve retrieval quality
+aclanthology.org
+. The study uses a base chunk size of 175 tokens with a 20‑token overlap when testing sliding windows
+aclanthology.org
+.
+
+Metadata and enrichment: Adding metadata such as titles, keywords or hypothetical questions improves retrieval
+aclanthology.org
+. Query‑based summarisation can remove redundant information and improve generation; best‑practice surveys recommend summarisation modules to address long prompts
+agentstudio.ai
+.
+
+Vector database selection: The same study compares Weaviate, Faiss, Chroma, Qdrant and Milvus and concludes that Milvus stands out for its flexibility, scalability and hybrid search capabilities
+aclanthology.org
+. For a lightweight deployment, Chroma or Qdrant can be used instead.
+
+Retrieval strategies: Hybrid retrieval (dense embeddings plus sparse BM25) often performs well; pseudo‑document methods like HyDE can improve performance but increase latency
+aclanthology.org
+. Reranking with models such as MonoT5 or TILDE improves relevance
+agentstudio.ai
+.
+
+Summarisation and query classification: Summarisation modules reduce prompt length and remove noise
+agentstudio.ai
+. Query classification avoids retrieval for tasks that do not need it
+agentstudio.ai
+.
+
+Tool chain
+Component	Chosen tool	Rationale
+Package/environment manager	uv	A high‑performance, drop‑in replacement for pip written in Rust. It is 8–10× faster than pip and pip‑tools without caching, and up to 80–115× faster with a warm cache
+astral.sh
+. It supports virtual environments (uv venv) and pip‑style commands (uv pip install)
+astral.sh
+.
+HTTP & CLI	requests, click	requests provides robust HTTP downloads; click makes it easy to define CLI commands and options.
+Token counting	tiktoken	A fast BPE tokenizer. The README shows how to obtain an encoding and count tokens by calling enc.encode()
+raw.githubusercontent.com
+. Token counts allow cost estimation for embedding requests.
+Embeddings provider	OpenRouter API with openai client	OpenRouter exposes many models through an OpenAI‑compatible API. A Snyk article demonstrates how to create an OpenAI client with base_url="https://openrouter.ai/api/v1" and HTTP‑Referer headers
+snyk.io
+. The Qwen3 embedding model costs $0.01 per million tokens
+openrouter.ai
+.
+LLM provider	litellm with OpenRouter (Moonshot K2, Qwen3)	litellm wraps multiple OpenAI‑style providers and supports streaming. Using OpenRouter models such as Moonshot K2 and Qwen3 ensures access to advanced LLMs through a single API key.
+Vector database	Chroma (default) or Qdrant	Chroma provides a simple local storage backend using DuckDB; Qdrant offers persistent storage. The EMNLP paper notes that Milvus offers the most features
+aclanthology.org
+, but Chroma is sufficient for local experimentation.
+Web framework	Tornado	A lightweight asynchronous framework suitable for building custom endpoints. As the final interface is simple, Tornado’s built‑in HTTP server suffices.
+Architecture overview
+
+Data acquisition: A downloader retrieves daily logs from https://gnusha.org/logs/YYYY-MM-DD.log 
+gnusha.org
+. The CLI stores them under a data/raw directory and supports resumable downloads.
+
+Preprocessing: Each log is parsed into (timestamp, message) pairs. Join/quit events are ignored; only user messages (lines containing <nickname> and >) are retained. The messages are concatenated into overlapping chunks of ~175 tokens with a 20‑token overlap
+aclanthology.org
+. Optional enrichment uses a larger LLM to summarise each chunk, following recommendations to reduce redundant context
+agentstudio.ai
+.
+
+Embedding: The system counts tokens using tiktoken (via encoding.encode())
+raw.githubusercontent.com
+ and estimates cost at $0.01/M tokens
+openrouter.ai
+. If the estimated cost exceeds the user’s budget (specified with --cost-limit), the operation is aborted. Otherwise, each chunk is embedded with the Qwen3 embedding model via OpenRouter. Embeddings and metadata (log file, index, line range) are stored in a Chroma collection.
+
+Retrieval & generation: Queries are embedded with Qwen3 embeddings. The vector database is searched for the top‑k nearest chunks. These excerpts are concatenated into a context string. A prompt combining the user’s question and the retrieved context is sent to an LLM (Moonshot K2 or Qwen3‑chat) via litellm. The answer is returned.
+
+Web application: A Tornado server exposes a /search endpoint. It accepts a JSON body with a query, performs retrieval and generation, and returns a JSON response with the answer. The asynchronous server offloads blocking API calls to a thread pool.
+
+The following diagram summarises the pipeline (simplified):
+
+       ┌──────────┐   raw log    ┌────────────┐    chunks    ┌──────────────┐
+       │Downloader├────────────►│Preprocessor├────────────►│Embedding +   │
+       └──────────┘              └────────────┘              │Vector DB    │
+            ▲                       ▲  chunks                │(Chroma)     │
+            │                       │                        └─────┬───────┘
+            │                       │                              │
+           CLI        enrich (LLM)  │        query               search
+            │                       │                              │
+            │                       ▼                              ▼
+       ┌─────────────────────────────────────────────────────────────────┐
+       │ Tornado /search endpoint: embed query, retrieve top‑k chunks,  │
+       │ compose prompt and call chat model via litellm, return answer. │
+       └─────────────────────────────────────────────────────────────────┘
+
+Implementation details
+Command‑line tools
+
+The hplus_rag/cli.py module implements a multi‑command CLI using click. Key commands include:
+
+download – downloads raw logs for a date range. Existing files are skipped by default (resumable). Logs are saved under data/raw/ as YYYY-MM-DD.log files.
+
+preprocess – parses each .log file, drops join/quit lines, segments messages into overlapping chunks using a sliding window of max_tokens (default 175) with overlap tokens (default 20)
+aclanthology.org
+. Optionally an LLM enrichment step can summarise each chunk. Chunks are saved as JSONL files in data/chunks/.
+
+embed – reads all chunk files, estimates token counts with tiktoken, computes the total cost at $0.01 per million tokens
+openrouter.ai
+, and aborts if it exceeds --cost-limit. Otherwise it calls openai.OpenAI(...).embeddings.create using OpenRouter’s API base (https://openrouter.ai/api/v1) and saves the embeddings into a Chroma database in data/index/. Each chunk’s metadata (file, index, line range) is stored alongside the vector.
+
+query – embeds a free‑text query, retrieves the top‑k matching chunks from the vector database, constructs a prompt and forwards it to a chat model via litellm.completion. Models such as moonshotai/k2 or qwen/qwen3-72b-chat can be specified. The answer is printed to the console.
+
+Web application
+
+hplus_rag/webapp.py exposes the same search functionality over HTTP:
+
+# POST /search with {"query": "your question"}
+# returns {"answer": "..."}
+
+
+The handler loads the Chroma index from disk, embeds the query, retrieves the nearest documents, builds a prompt and calls the specified chat model via litellm. It runs embeddings and completions in a thread pool to avoid blocking the Tornado event loop.
+
+Resumable downloads and cost estimation
+
+Resumable downloads: The downloader checks if a file already exists before downloading it. Interrupted runs can therefore be resumed without re‑downloading previous files. Users can disable this behaviour with --no-resume if they need to overwrite files.
+
+Cost estimation: Before calling the embedding API the total number of tokens across all chunks is summed via tiktoken.get_encoding(...).encode(...)
+raw.githubusercontent.com
+. The cost is estimated at $0.01/M tokens
+openrouter.ai
+ and compared against the user‑supplied budget. This helps avoid unexpectedly large bills.
+
+Enriching chunks with an LLM (optional)
+
+The RAG best‑practice study recommends summarisation modules to remove redundant information before generation
+agentstudio.ai
+. The provided enrich_chunk function currently returns the chunk text unchanged. To enable enrichment, implement enrich_chunk to call a larger model (e.g., qwen/qwen3-72b-chat or moonshotai/k2) via litellm. The cost of summarisation should also be estimated with tiktoken; summarised text can then replace the original chunk or be stored alongside it.
+
+Vector database choice
+
+Milvus outperformed other open‑source vector databases in the best‑practice study
+aclanthology.org
+. However, for simplicity and ease of installation this project defaults to Chroma with DuckDB storage. Chroma allows adding embeddings with associated metadata and performing similarity queries. Migrating to Milvus or Qdrant would involve changing only a small portion of the code where the vector store is initialised and queried.
+
+Security and privacy considerations
+
+API keys: Store your OpenRouter API key in an environment variable (OPENROUTER_API_KEY). Never commit secrets to version control.
+
+Rate limits: OpenRouter imposes rate limits per key. Batch embeddings and limit concurrent requests accordingly.
+
+User privacy: IRC logs are public, but be cautious about inadvertently exposing private information when summarising or generating answers. Consider adding content filters or redaction modules if deploying publicly.
+
+Development workflow
+
+Install the tool chain: Install uv via the provided shell script or pip and create an isolated environment:
+
+curl -LsSf https://astral.sh/uv/install.sh | sh  # or: pip install uv
+cd <project>
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+
+
+uv pip offers the same interface as pip but is significantly faster
+astral.sh
+.
+
+Download logs: Use the CLI to fetch logs. For example, to download the last month of logs:
+
+python -m hplus_rag.cli download --start 2025-10-14 --end 2025-11-13
+
+
+Preprocess: Segment the logs into overlapping windows, optionally with summarisation:
+
+python -m hplus_rag.cli preprocess --max-tokens 175 --overlap 20
+
+
+Embed: Estimate cost and embed the chunks into a Chroma database:
+
+python -m hplus_rag.cli embed --cost-limit 2.0
+
+
+Query: Test retrieval and generation from the command line:
+
+python -m hplus_rag.cli query --model moonshotai/k2 "What is the latest discussion on atomic gardening?"
+
+
+Run the web app: Launch the Tornado server to expose a REST API:
+
+python -m hplus_rag.webapp --port 8080
+# then POST {"query": "..."} to http://localhost:8080/search
+
+Future improvements
+
+Hybrid retrieval and reranking: Integrate BM25 sparse retrieval and a reranker (e.g., MonoT5) to improve recall and ranking
+agentstudio.ai
+.
+
+Query classification: Add a module that decides whether retrieval is necessary before sending the query to the RAG pipeline
+agentstudio.ai
+.
+
+Summarisation and repacking: Implement summarisation strategies such as Recomp or LongLLMLingua
+agentstudio.ai
+ and repacking strategies (reverse ordering)
+agentstudio.ai
+.
+
+Cost‑aware scheduling: Automatically split embedding workloads into smaller batches to stay within a monthly budget and optionally compress or deduplicate similar chunks.
+
+User interface: Build a simple HTML/JS front‑end that interacts with the Tornado API, showing retrieved excerpts and streaming answers.
+
+By following this plan and building on the provided scripts you can implement a full semantic search and RAG pipeline for the hplusroadmap IRC logs. The combination of fast chunking, token‑aware cost management, Qwen embeddings, and high‑quality LLMs provides a powerful framework for exploring and summarising years of community discussion.
+
+
+
