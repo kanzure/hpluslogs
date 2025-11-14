@@ -431,9 +431,10 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
 @click.option("--model", default="openrouter/moonshotai/kimi-k2", help="Chat model to use for answering queries.")
 @click.option("--top-k", default=20, help="Number of nearest neighbours to retrieve.")
 @click.option("--nollm", default=False, help="Use an LLM for summarization")
+@click.option("--contextlimit", type=int, default=256000, help="Maximum tokens in context before aborting (0 for no limit).")
 @click.argument("query")
 @click.pass_obj
-def query(obj: dict, model: str, top_k: int, nollm: bool, query: str) -> None:
+def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, query: str) -> None:
     """Answer a user question by retrieving relevant IRC messages and calling an LLM.
 
     This command embeds the query using the Qwen3 embedding model, retrieves
@@ -469,6 +470,11 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, query: str) -> None:
     click.echo("\nContext: <context>" + context + "</context>\n\n")
     if nollm:
         return
+    if contextlimit > 0:
+        context_tokens = token_count(context)
+        if context_tokens > contextlimit:
+            click.echo(f"Context too long: {context_tokens} tokens exceeds limit of {contextlimit}")
+            raise click.Abort()
     else:
         prompt = (
             "You are an assistant with access to the hplusroadmap IRC logs.\n"
