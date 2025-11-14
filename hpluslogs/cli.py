@@ -287,7 +287,7 @@ def preprocess(obj: dict, max_tokens: int, overlap: int, enrich: bool) -> None:
     for log_file in sorted(raw_dir.glob("*.log")):
         out_file = chunk_dir / (log_file.stem + ".jsonl")
         click.echo(f"Processing {log_file.name} …")
-        lines = parse_log_lines(log_file.read_text(encoding="utf-8"))
+        lines = parse_log_lines(log_file.read_text(encoding="utf-8", errors="replace"))
         messages = list(lines)
         chunks = chunk_messages(messages, max_tokens=max_tokens, overlap=overlap)
         if enrich:
@@ -411,7 +411,7 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
         raise click.UsageError("Chroma is not installed. Please install it via `uv pip install chromadb`.")
     clientdb = chromadb.PersistentClient(path=str(index_dir))
     collection = clientdb.get_or_create_collection(name="hplus_index")
-    batch_size = 32
+    batch_size = 32 * 3 # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
     
     all_embeddings, all_ids, all_metadatas, all_documents = asyncio.run(
         embed_all_batches(client, model, texts, metadata, batch_size, concurrency)
