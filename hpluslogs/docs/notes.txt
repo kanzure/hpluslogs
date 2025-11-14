@@ -258,7 +258,20 @@ python3 -m cli query --model openrouter/x-ai/grok-4-fast "surgical approaches, s
 
 date; x=$(voice); date; time python3 -m cli query --top-k 100 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x"
 
+date; time python3 -m cli query --top-k 100 --model openrouter/moonshotai/kimi-k2-0905
 
+
+
+pandoc -s input.md -c wrap.css -o output.html
+pandoc -f markdown -t html --lua-filter=auto-url.lua -s -c wrap.css input.md -o output.md
+
+ls *.md | xargs -I {} pandoc -s {} -c wrap.css -o {}.html
+
+
+date; x=$(voice); date; time python3 -m cli query --top-k 300 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x"
+
+
+pandoc -f markdown+autolink_bare_uris -s -c wrap.css biocomputing2.md -o biocomputing2.md.html
 
 
 
