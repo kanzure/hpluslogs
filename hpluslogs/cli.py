@@ -38,6 +38,7 @@ appropriate API keys are configured.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import json
 import os
@@ -296,21 +297,86 @@ def preprocess(obj: dict, max_tokens: int, overlap: int, enrich: bool) -> None:
         click.echo(f"Wrote {len(chunks)} chunks to {out_file}")
 
 
+async def embed_batch_async(client: "openai.AsyncOpenAI", model: str, batch_texts: List[str]) -> List[List[float]]:
+    """Asynchronously embed a batch of texts using the OpenRouter API.
+    
+    This helper function is called concurrently to parallelize embedding requests.
+    It returns a list of embedding vectors in the same order as the input texts.
+    """
+    resp = await client.embeddings.create(model=model, input=batch_texts)
+    return [item.embedding for item in resp.data]
+
+
+async def embed_all_batches(
+    client: "openai.AsyncOpenAI",
+    model: str,
+    texts: List[str],
+    metadata: List[dict],
+    batch_size: int,
+    concurrency: int,
+) -> Tuple[List[List[float]], List[str], List[dict], List[str]]:
+    """Embed all texts in batches with controlled concurrency.
+    
+    This function splits the input texts into batches and processes up to
+    ``concurrency`` batches in parallel using asyncio.Semaphore.  It returns
+    four lists: embeddings, ids, metadatas and documents, ready to be added
+    to the vector database.
+    """
+    semaphore = asyncio.Semaphore(concurrency)
+    
+    async def embed_with_semaphore(batch_idx: int, batch_texts: List[str], batch_meta: List[dict]) -> Tuple[int, List[List[float]]]:
+        async with semaphore:
+            click.echo(f"Embedding batch {batch_idx + 1} / {((len(texts)-1)//batch_size)+1}…")
+            embeddings = await embed_batch_async(client, model, batch_texts)
+            return (batch_idx, embeddings)
+    
+    tasks = []
+    batches_info = []
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        batch_meta = metadata[i:i + batch_size]
+        batch_idx = i // batch_size
+        batches_info.append((batch_texts, batch_meta))
+        tasks.append(embed_with_semaphore(batch_idx, batch_texts, batch_meta))
+    
+    results = await asyncio.gather(*tasks)
+    results_sorted = sorted(results, key=lambda x: x[0])
+    
+    all_embeddings = []
+    all_ids = []
+    all_metadatas = []
+    all_documents = []
+    
+    for (batch_texts, batch_meta), (_, embeddings) in zip(batches_info, results_sorted):
+        all_embeddings.extend(embeddings)
+        all_ids.extend([f"{meta['file']}-{meta['index']}" for meta in batch_meta])
+        all_metadatas.extend(batch_meta)
+        all_documents.extend(batch_texts)
+    
+    return all_embeddings, all_ids, all_metadatas, all_documents
+
+
 @cli.command()
 @click.option("--cost-limit", type=float, default=1.0,
               help="Maximum allowable estimated cost in USD for embedding.")
 @click.option("--provider", default="openrouter.ai/api/v1", help="Base URL for the OpenRouter API.")
 @click.option("--model", default="qwen/qwen3-embedding-8b", help="Embedding model identifier.")
+@click.option("--concurrency", type=int, default=5,
+              help="Number of concurrent embedding requests to make in parallel.")
 @click.pass_obj
-def embed(obj: dict, cost_limit: float, provider: str, model: str) -> None:
+def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: int) -> None:
     """Embed all chunk files into a vector database using OpenRouter embeddings.
 
     Before invoking the remote API this command estimates the total
     token count across all chunks using tiktoken and warns the user if
     the estimated cost would exceed the configured ``cost_limit`` (in
     USD).  If the budget is sufficient, the embeddings are computed
-    using ``openai`` with ``api_base`` pointing at OpenRouter and
-    saved into a Chroma database under ``data_dir/index``.
+    using ``openai.AsyncOpenAI`` with ``api_base`` pointing at OpenRouter.
+    
+    The ``--concurrency`` parameter controls how many embedding requests
+    are made in parallel using asyncio.  Higher values speed up the process
+    but may hit rate limits.  The embeddings are saved into a Chroma database
+    under ``data_dir/index``.
 
     The Qwen3 embedding model currently costs $0.01 per million input
     tokens.  Adjust ``cost_limit`` as desired.
@@ -334,7 +400,7 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str) -> None:
     if est_cost > cost_limit:
         click.echo(f"Aborting: estimated cost ${est_cost:.4f} exceeds cost limit ${cost_limit:.2f}")
         return
-    client = openai.OpenAI(
+    client = openai.AsyncOpenAI(
         base_url=f"https://{provider}",
         api_key=os.environ.get("OPENROUTER_API_KEY"),
         default_headers={"HTTP-Referer": "http://localhost"},
@@ -346,23 +412,28 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str) -> None:
     clientdb = chromadb.PersistentClient(path=str(index_dir))
     collection = clientdb.get_or_create_collection(name="hplus_index")
     batch_size = 32
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i + batch_size]
-        batch_meta = metadata[i:i + batch_size]
-        click.echo(f"Embedding batch {i//batch_size + 1} / {((len(texts)-1)//batch_size)+1}…")
-        resp = client.embeddings.create(model=model, input=batch_texts)
-        embeddings = [item.embedding for item in resp.data]
-        ids = [f"{meta['file']}-{meta['index']}" for meta in batch_meta]
-        collection.add(ids=ids, embeddings=embeddings, metadatas=batch_meta, documents=batch_texts)
+    
+    all_embeddings, all_ids, all_metadatas, all_documents = asyncio.run(
+        embed_all_batches(client, model, texts, metadata, batch_size, concurrency)
+    )
+    
+    click.echo(f"Adding {len(all_embeddings)} embeddings to the vector database…")
+    collection.add(
+        ids=all_ids,
+        embeddings=all_embeddings,
+        metadatas=all_metadatas,
+        documents=all_documents
+    )
     click.echo(f"Embedded {len(texts)} chunks and saved index to {index_dir}")
 
 
 @cli.command()
-@click.option("--model", default="moonshotai/k2", help="Chat model to use for answering queries.")
-@click.option("--top-k", default=5, help="Number of nearest neighbours to retrieve.")
+@click.option("--model", default="openrouter/moonshotai/kimi-k2", help="Chat model to use for answering queries.")
+@click.option("--top-k", default=20, help="Number of nearest neighbours to retrieve.")
+@click.option("--nollm", default=False, help="Use an LLM for summarization")
 @click.argument("query")
 @click.pass_obj
-def query(obj: dict, model: str, top_k: int, query: str) -> None:
+def query(obj: dict, model: str, top_k: int, nollm: bool, query: str) -> None:
     """Answer a user question by retrieving relevant IRC messages and calling an LLM.
 
     This command embeds the query using the Qwen3 embedding model, retrieves
@@ -395,22 +466,27 @@ def query(obj: dict, model: str, top_k: int, query: str) -> None:
     for doc, meta in zip(documents, metadatas):
         context_parts.append(f"[From {meta['file']} lines {meta['start']}-{meta['end']}]\n{doc}")
     context = "\n\n".join(context_parts)
-    prompt = (
-        "You are an assistant with access to the hplusroadmap IRC logs.\n"
-        "Answer the following question using the retrieved chat excerpts.\n"
-        "If the logs do not contain the answer, say so.\n\n"
-        f"Question: {query}\n\n"
-        f"Retrieved Context:\n{context}\n\n"
-        "Answer:"
-    )
-    llm_response = litellm.completion(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        api_key=os.environ.get("OPENROUTER_API_KEY"),
-        base_url="https://openrouter.ai/api/v1",
-    )
-    answer = llm_response['choices'][0]['message']['content']
-    click.echo("\n" + answer.strip())
+    click.echo("\nContext: <context>" + context + "</context>\n\n")
+    if nollm:
+        return
+    else:
+        prompt = (
+            "You are an assistant with access to the hplusroadmap IRC logs.\n"
+            "Answer the following question using the retrieved chat excerpts. Where possible, please include next to a specific reference a link to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and backticks around quotes from the IRC log excerpt (next to the URL that you provide).\n"
+            "If the logs do not contain the answer, say so.\n\n"
+            f"Question: <prompt>{query}</prompt>\n\n"
+            f"Retrieved Context:\n<context>{context}</context>\n\n"
+            "Answer:"
+        )
+        click.echo("Asking the LLM...\n")
+        llm_response = litellm.completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
+        )
+        answer = llm_response['choices'][0]['message']['content']
+        click.echo("\n" + answer.strip())
 
 
 def main() -> None:
