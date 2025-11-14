@@ -207,6 +207,23 @@ def save_jsonl(chunks: List[dict], path: Path) -> None:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
+def load_embedding_progress(progress_file: Path) -> set:
+    """Load the set of already-embedded chunk IDs from the progress file."""
+    if not progress_file.exists():
+        return set()
+    completed = set()
+    with progress_file.open("r", encoding="utf-8") as f:
+        for line in f:
+            completed.add(line.strip())
+    return completed
+
+
+def save_embedding_progress(progress_file: Path, chunk_id: str) -> None:
+    """Append a completed chunk ID to the progress file."""
+    with progress_file.open("a", encoding="utf-8") as f:
+        f.write(chunk_id + "\n")
+
+
 ###############################################################################
 # CLI Commands
 ###############################################################################
@@ -307,53 +324,91 @@ async def embed_batch_async(client: "openai.AsyncOpenAI", model: str, batch_text
     return [item.embedding for item in resp.data]
 
 
-async def embed_all_batches(
+async def embed_and_store_batches(
     client: "openai.AsyncOpenAI",
     model: str,
     texts: List[str],
     metadata: List[dict],
     batch_size: int,
     concurrency: int,
-) -> Tuple[List[List[float]], List[str], List[dict], List[str]]:
-    """Embed all texts in batches with controlled concurrency.
+    collection: "chromadb.Collection",
+    progress_file: Path,
+    completed_ids: set,
+) -> int:
+    """Embed texts in batches and incrementally store them in the vector database.
     
-    This function splits the input texts into batches and processes up to
-    ``concurrency`` batches in parallel using asyncio.Semaphore.  It returns
-    four lists: embeddings, ids, metadatas and documents, ready to be added
-    to the vector database.
+    This function processes batches with controlled concurrency and adds each
+    batch to the Chroma collection immediately after embedding, reducing memory
+    usage.  It also tracks progress so the script can resume if interrupted.
+    Returns the number of newly embedded chunks.
     """
     semaphore = asyncio.Semaphore(concurrency)
     
-    async def embed_with_semaphore(batch_idx: int, batch_texts: List[str], batch_meta: List[dict]) -> Tuple[int, List[List[float]]]:
+    async def embed_and_add_batch(batch_idx: int, batch_texts: List[str], batch_meta: List[dict]) -> int:
         async with semaphore:
-            click.echo(f"Embedding batch {batch_idx + 1} / {((len(texts)-1)//batch_size)+1}…")
-            embeddings = await embed_batch_async(client, model, batch_texts)
-            return (batch_idx, embeddings)
+            # Filter out already-completed chunks
+            filtered_texts = []
+            filtered_meta = []
+            for text, meta in zip(batch_texts, batch_meta):
+                chunk_id = f"{meta['file']}-{meta['index']}"
+                if chunk_id not in completed_ids:
+                    filtered_texts.append(text)
+                    filtered_meta.append(meta)
+            
+            if not filtered_texts:
+                click.echo(f"Batch {batch_idx + 1}: all chunks already embedded, skipping")
+                return 0
+            
+            click.echo(f"Embedding batch {batch_idx + 1} ({len(filtered_texts)} chunks)…")
+            embeddings = await embed_batch_async(client, model, filtered_texts)
+            
+            # Prepare data for Chroma
+            ids = [f"{meta['file']}-{meta['index']}" for meta in filtered_meta]
+            
+            # Add to collection immediately (runs in thread pool to avoid blocking)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: collection.add(
+                    ids=ids,
+                    embeddings=embeddings,
+                    metadatas=filtered_meta,
+                    documents=filtered_texts
+                )
+            )
+            
+            # Record progress
+            for chunk_id in ids:
+                save_embedding_progress(progress_file, chunk_id)
+                completed_ids.add(chunk_id)
+            
+            click.echo(f"Batch {batch_idx + 1}: added {len(ids)} embeddings to database")
+            
+            # Explicitly free memory
+            del embeddings
+            del ids
+            del filtered_texts
+            del filtered_meta
+            
+            return len(ids)
     
+    # Create batches
     tasks = []
-    batches_info = []
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i + batch_size]
         batch_meta = metadata[i:i + batch_size]
         batch_idx = i // batch_size
-        batches_info.append((batch_texts, batch_meta))
-        tasks.append(embed_with_semaphore(batch_idx, batch_texts, batch_meta))
+        tasks.append(embed_and_add_batch(batch_idx, batch_texts, batch_meta))
     
+    # Process all batches
     results = await asyncio.gather(*tasks)
-    results_sorted = sorted(results, key=lambda x: x[0])
+    total = sum(results)
     
-    all_embeddings = []
-    all_ids = []
-    all_metadatas = []
-    all_documents = []
+    # Explicitly free memory
+    del tasks
+    del results
     
-    for (batch_texts, batch_meta), (_, embeddings) in zip(batches_info, results_sorted):
-        all_embeddings.extend(embeddings)
-        all_ids.extend([f"{meta['file']}-{meta['index']}" for meta in batch_meta])
-        all_metadatas.extend(batch_meta)
-        all_documents.extend(batch_texts)
-    
-    return all_embeddings, all_ids, all_metadatas, all_documents
+    return total
 
 
 @cli.command()
@@ -375,8 +430,9 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     
     The ``--concurrency`` parameter controls how many embedding requests
     are made in parallel using asyncio.  Higher values speed up the process
-    but may hit rate limits.  The embeddings are saved into a Chroma database
-    under ``data_dir/index``.
+    but may hit rate limits.  The embeddings are saved incrementally into
+    a Chroma database under ``data_dir/index``.  Progress is tracked in
+    ``data_dir/embedding_progress.txt`` so the script can resume if interrupted.
 
     The Qwen3 embedding model currently costs $0.01 per million input
     tokens.  Adjust ``cost_limit`` as desired.
@@ -387,6 +443,13 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     index_dir = data_dir / "index"
     ensure_directory(index_dir)
     chunk_dir = data_dir / "chunks"
+    progress_file = data_dir / "embedding_progress.txt"
+    
+    # Load already-completed chunks
+    completed_ids = load_embedding_progress(progress_file)
+    click.echo(f"Found {len(completed_ids)} already-embedded chunks")
+    
+    # Load all chunks
     texts: List[str] = []
     metadata: List[dict] = []
     for f in sorted(chunk_dir.glob("*.jsonl")):
@@ -395,11 +458,25 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
             texts.append(obj_j.get("enriched_text", obj_j["text"]))
             meta = {"file": f.stem, "index": obj_j["index"], "start": obj_j["start"], "end": obj_j["end"]}
             metadata.append(meta)
-    est_cost = estimate_embedding_cost(texts)
-    click.echo(f"Estimated embedding cost: ${est_cost:.4f} at $0.01/M tokens")
+    
+    # Filter out already-completed chunks for cost estimation
+    remaining_texts = []
+    for text, meta in zip(texts, metadata):
+        chunk_id = f"{meta['file']}-{meta['index']}"
+        if chunk_id not in completed_ids:
+            remaining_texts.append(text)
+    
+    if not remaining_texts:
+        click.echo("All chunks have already been embedded!")
+        return
+    
+    click.echo(f"Total chunks: {len(texts)}, remaining to embed: {len(remaining_texts)}")
+    est_cost = estimate_embedding_cost(remaining_texts)
+    click.echo(f"Estimated embedding cost for remaining chunks: ${est_cost:.4f} at $0.01/M tokens")
     if est_cost > cost_limit:
         click.echo(f"Aborting: estimated cost ${est_cost:.4f} exceeds cost limit ${cost_limit:.2f}")
         return
+    
     client = openai.AsyncOpenAI(
         base_url=f"https://{provider}",
         api_key=os.environ.get("OPENROUTER_API_KEY"),
@@ -411,20 +488,23 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
         raise click.UsageError("Chroma is not installed. Please install it via `uv pip install chromadb`.")
     clientdb = chromadb.PersistentClient(path=str(index_dir))
     collection = clientdb.get_or_create_collection(name="hplus_index")
-    batch_size = 32 * 3 # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
+    batch_size = 32 * 3  # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
     
-    all_embeddings, all_ids, all_metadatas, all_documents = asyncio.run(
-        embed_all_batches(client, model, texts, metadata, batch_size, concurrency)
+    # Embed and store incrementally
+    newly_embedded = asyncio.run(
+        embed_and_store_batches(
+            client, model, texts, metadata, batch_size, concurrency,
+            collection, progress_file, completed_ids
+        )
     )
     
-    click.echo(f"Adding {len(all_embeddings)} embeddings to the vector database…")
-    collection.add(
-        ids=all_ids,
-        embeddings=all_embeddings,
-        metadatas=all_metadatas,
-        documents=all_documents
-    )
-    click.echo(f"Embedded {len(texts)} chunks and saved index to {index_dir}")
+    # Explicitly free memory after embedding is complete
+    del texts
+    del metadata
+    del remaining_texts
+    
+    click.echo(f"Successfully embedded {newly_embedded} new chunks and saved to {index_dir}")
+    click.echo(f"Total embedded chunks: {len(completed_ids)}")
 
 
 @cli.command()
