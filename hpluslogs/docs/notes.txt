@@ -220,7 +220,7 @@ python -m hplus_rag.cli embed --cost-limit 2.0
 
 Query: Test retrieval and generation from the command line:
 
-python -m hplus_rag.cli query --model moonshotai/k2 "What is the latest discussion on atomic gardening?"
+python -m hplus_rag.cli query --model openrouter/moonshotai/kimi-k2 "What is the latest discussion on atomic gardening?"
 
 
 Run the web app: Launch the Tornado server to expose a REST API:
@@ -249,6 +249,17 @@ Cost‑aware scheduling: Automatically split embedding workloads into smaller ba
 User interface: Build a simple HTML/JS front‑end that interacts with the Tornado API, showing retrieved excerpts and streaming answers.
 
 By following this plan and building on the provided scripts you can implement a full semantic search and RAG pipeline for the hplusroadmap IRC logs. The combination of fast chunking, token‑aware cost management, Qwen embeddings, and high‑quality LLMs provides a powerful framework for exploring and summarising years of community discussion.
+
+
+
+
+python3 -m cli query --model openrouter/x-ai/grok-4-fast "surgical approaches, surgical methods, surgery, embryo surgery, micromanipulation surgery, cell surgery, ultramicrosurgery, surgeons, fetal surgery, brain surgery" --prompt-fragment "I am interested in the most interesting surgical concepts or methods even if they are unconventional, experimental, or research oriented. For what purpose is each surgical technique devised? What is the concept for each surgical concept?"
+
+
+date; x=$(voice); date; time python3 -m cli query --top-k 100 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x"
+
+
+
 
 
 

@@ -509,11 +509,11 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
 
 @cli.command()
 @click.option("--model", default="openrouter/moonshotai/kimi-k2", help="Chat model to use for answering queries.")
-@click.option("--top-k", default=20, help="Number of nearest neighbours to retrieve.")
+@click.option("--top-k", default=100, help="Number of nearest neighbours to retrieve.")
 @click.option("--nollm", default=False, help="Skip using an LLM (print context only).")
 @click.option("--contextlimit", type=int, default=256000, help="Maximum tokens in context before aborting (0 for no limit).")
 @click.option("--prompt-fragment", default="", help="Additional instructions to add to the LLM prompt.")
-@click.argument("query")
+@click.argument("query", required=False, default="")
 @click.pass_obj
 def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, prompt_fragment: str, query: str) -> None:
     """Answer a user question by retrieving relevant IRC messages and calling an LLM.
@@ -523,6 +523,10 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
     a prompt that includes the retrieved context, and sends the prompt to
     the specified chat model via litellm/openrouter.  The answer is
     printed to stdout.
+    
+    If no query is provided but a prompt-fragment is given, the LLM will first
+    generate appropriate search terms from the prompt-fragment, then use those
+    to query the vector database.
     """
     if openai is None or litellm is None:
         raise click.UsageError("The openai and litellm packages are required. Please install them via uv pip install openai litellm")
@@ -539,7 +543,31 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
         api_key=os.environ.get("OPENROUTER_API_KEY"),
         default_headers={"HTTP-Referer": "http://localhost"},
     )
-    embed_resp = embed_client.embeddings.create(model="qwen/qwen3-embedding-8b", input=[query])
+    
+    # If no query provided, generate search terms from prompt-fragment using LLM
+    search_query = query
+    if not query and prompt_fragment:
+        click.echo("No query provided. Generating search terms from prompt-fragment using LLM...\n")
+        query_generation_prompt = (
+            "You are a search query generator for a semantic search system over IRC chat logs.\n"
+            "Based on the user's request below, generate an effective search query.\n"
+            "The query should be a concise list of key terms, concepts, or phrases that would help retrieve relevant messages.\n"
+            "Return ONLY the search query text, nothing else.\n\n"
+            f"User request: {prompt_fragment}\n\n"
+            "Search query:"
+        )
+        query_gen_response = litellm.completion(
+            model=model,
+            messages=[{"role": "user", "content": query_generation_prompt}],
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
+        )
+        search_query = query_gen_response['choices'][0]['message']['content'].strip()
+        click.echo(f"Generated search query: {search_query}\n")
+    elif not query and not prompt_fragment:
+        raise click.UsageError("Either a query argument or --prompt-fragment must be provided.")
+
+    embed_resp = embed_client.embeddings.create(model="qwen/qwen3-embedding-8b", input=[search_query])
     query_embedding = embed_resp.data[0].embedding
     results = collection.query(query_embeddings=[query_embedding], n_results=top_k)
     documents = results.get("documents", [[]])[0]
@@ -562,16 +590,21 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
 
     prompt = (
         "You are an assistant with access to the hplusroadmap IRC logs.\n"
-        "Answer the following question using the retrieved chat excerpts. Where possible, please include next to a specific reference a link to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and backticks around quotes from the IRC log excerpt (next to the URL that you provide).\n"
-        "If the logs do not contain the answer, say so.\n\n"
+        "Answer the following question using the retrieved chat excerpts. Where possible, please include (on the line before the chat excerpt) a specific reference hyperlink to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use (next to the URL that you provide).\n"
+        "Where you see papers referenced, please collect those references and display them in your answer. Where you see companies mentioned, like a new company or a name of a company, or the name of people involved in different projects or ventures, or the name of different involved people, please list those in the answer as well. You are writing for a highly technical audience that is deeply interested in esoteric knowledge, technology, engineering, tech development, research, brainstorming, and speculation.\n"
+        "If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability.\n\n"
     )
     if prompt_fragment:
-        prompt_fragment2 = f"Extra prompt for you: <prompt>{prompt_fragment}</prompt>\n\n"
+        prompt_fragment2 = f"User request: <prompt>{prompt_fragment}</prompt>\n\n"
     else:
         prompt_fragment2 = ""
+
+    # Include the search query used (whether original or generated)
+    search_info = f"Search query used: <search_query>{search_query}</search_query>\n\n"
+
     prompt += (
-        f"Search query: <prompt>{query}</prompt>\n\n"
         f"{prompt_fragment2}"
+        f"{search_info}"
         f"Retrieved Context:\n<context>{context}</context>\n\n"
         "Answer:"
     )
