@@ -430,11 +430,12 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
 @cli.command()
 @click.option("--model", default="openrouter/moonshotai/kimi-k2", help="Chat model to use for answering queries.")
 @click.option("--top-k", default=20, help="Number of nearest neighbours to retrieve.")
-@click.option("--nollm", default=False, help="Use an LLM for summarization")
+@click.option("--nollm", default=False, help="Skip using an LLM (print context only).")
 @click.option("--contextlimit", type=int, default=256000, help="Maximum tokens in context before aborting (0 for no limit).")
+@click.option("--prompt-fragment", default="", help="Additional instructions to add to the LLM prompt.")
 @click.argument("query")
 @click.pass_obj
-def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, query: str) -> None:
+def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, prompt_fragment: str, query: str) -> None:
     """Answer a user question by retrieving relevant IRC messages and calling an LLM.
 
     This command embeds the query using the Qwen3 embedding model, retrieves
@@ -468,31 +469,41 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, que
         context_parts.append(f"[From {meta['file']} lines {meta['start']}-{meta['end']}]\n{doc}")
     context = "\n\n".join(context_parts)
     click.echo("\nContext: <context>" + context + "</context>\n\n")
-    if nollm:
+    if nollm == True:
+        click.echo("\nExiting due to nollm flag.")
         return
     if contextlimit > 0:
         context_tokens = token_count(context)
         if context_tokens > contextlimit:
             click.echo(f"Context too long: {context_tokens} tokens exceeds limit of {contextlimit}")
-            raise click.Abort()
+            return
+        else:
+            click.echo(f"Context length: {context_tokens}\n\n\n")
+
+    prompt = (
+        "You are an assistant with access to the hplusroadmap IRC logs.\n"
+        "Answer the following question using the retrieved chat excerpts. Where possible, please include next to a specific reference a link to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and backticks around quotes from the IRC log excerpt (next to the URL that you provide).\n"
+        "If the logs do not contain the answer, say so.\n\n"
+    )
+    if prompt_fragment:
+        prompt_fragment2 = f"Extra prompt for you: <prompt>{prompt_fragment}</prompt>\n\n"
     else:
-        prompt = (
-            "You are an assistant with access to the hplusroadmap IRC logs.\n"
-            "Answer the following question using the retrieved chat excerpts. Where possible, please include next to a specific reference a link to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and backticks around quotes from the IRC log excerpt (next to the URL that you provide).\n"
-            "If the logs do not contain the answer, say so.\n\n"
-            f"Question: <prompt>{query}</prompt>\n\n"
-            f"Retrieved Context:\n<context>{context}</context>\n\n"
-            "Answer:"
-        )
-        click.echo("Asking the LLM...\n")
-        llm_response = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
-            base_url="https://openrouter.ai/api/v1",
-        )
-        answer = llm_response['choices'][0]['message']['content']
-        click.echo("\n" + answer.strip())
+        prompt_fragment2 = ""
+    prompt += (
+        f"Search query: <prompt>{query}</prompt>\n\n"
+        f"{prompt_fragment2}"
+        f"Retrieved Context:\n<context>{context}</context>\n\n"
+        "Answer:"
+    )
+    click.echo("Asking the LLM...\n")
+    llm_response = litellm.completion(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
+    )
+    answer = llm_response['choices'][0]['message']['content']
+    click.echo("\n" + answer.strip())
 
 
 def main() -> None:
