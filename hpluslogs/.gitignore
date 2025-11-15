@@ -6,3 +6,6 @@ __pycache__/
 
 # vim editor swap files
 .*.sw*
+
+# ignore raw data dumps
+data/
