@@ -1,0 +1,7 @@
+   /* wrap long lines in <pre> and <code> */
+   pre, code, pre code {
+     white-space: pre-wrap;      /* allow wrapping          */
+     word-wrap: break-word;      /* break very long “words” */
+     overflow-wrap: break-word; /* modern synonym          */
+   }
+

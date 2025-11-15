@@ -269,6 +269,7 @@ ls *.md | xargs -I {} pandoc -s {} -c wrap.css -o {}.html
 
 
 date; x=$(voice); date; time python3 -m cli query --top-k 300 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x"
+date; x=$(voice); date; time python3 -m cli query --top-k 300 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x" --output-name "fenn"
 
 
 pandoc -f markdown+autolink_bare_uris -s -c wrap.css biocomputing2.md -o biocomputing2.md.html

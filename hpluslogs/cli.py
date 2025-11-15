@@ -42,6 +42,7 @@ import asyncio
 import datetime as _dt
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
 
@@ -316,7 +317,7 @@ def preprocess(obj: dict, max_tokens: int, overlap: int, enrich: bool) -> None:
 
 async def embed_batch_async(client: "openai.AsyncOpenAI", model: str, batch_texts: List[str]) -> List[List[float]]:
     """Asynchronously embed a batch of texts using the OpenRouter API.
-    
+
     This helper function is called concurrently to parallelize embedding requests.
     It returns a list of embedding vectors in the same order as the input texts.
     """
@@ -336,14 +337,14 @@ async def embed_and_store_batches(
     completed_ids: set,
 ) -> int:
     """Embed texts in batches and incrementally store them in the vector database.
-    
+
     This function processes batches with controlled concurrency and adds each
     batch to the Chroma collection immediately after embedding, reducing memory
     usage.  It also tracks progress so the script can resume if interrupted.
     Returns the number of newly embedded chunks.
     """
     semaphore = asyncio.Semaphore(concurrency)
-    
+
     async def embed_and_add_batch(batch_idx: int, batch_texts: List[str], batch_meta: List[dict]) -> int:
         async with semaphore:
             # Filter out already-completed chunks
@@ -354,17 +355,17 @@ async def embed_and_store_batches(
                 if chunk_id not in completed_ids:
                     filtered_texts.append(text)
                     filtered_meta.append(meta)
-            
+
             if not filtered_texts:
                 click.echo(f"Batch {batch_idx + 1}: all chunks already embedded, skipping")
                 return 0
-            
+
             click.echo(f"Embedding batch {batch_idx + 1} ({len(filtered_texts)} chunks)…")
             embeddings = await embed_batch_async(client, model, filtered_texts)
-            
+
             # Prepare data for Chroma
             ids = [f"{meta['file']}-{meta['index']}" for meta in filtered_meta]
-            
+
             # Add to collection immediately (runs in thread pool to avoid blocking)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
@@ -376,22 +377,22 @@ async def embed_and_store_batches(
                     documents=filtered_texts
                 )
             )
-            
+
             # Record progress
             for chunk_id in ids:
                 save_embedding_progress(progress_file, chunk_id)
                 completed_ids.add(chunk_id)
-            
+
             click.echo(f"Batch {batch_idx + 1}: added {len(ids)} embeddings to database")
-            
+
             # Explicitly free memory
             del embeddings
             del ids
             del filtered_texts
             del filtered_meta
-            
+
             return len(ids)
-    
+
     # Create batches
     tasks = []
     for i in range(0, len(texts), batch_size):
@@ -399,15 +400,15 @@ async def embed_and_store_batches(
         batch_meta = metadata[i:i + batch_size]
         batch_idx = i // batch_size
         tasks.append(embed_and_add_batch(batch_idx, batch_texts, batch_meta))
-    
+
     # Process all batches
     results = await asyncio.gather(*tasks)
     total = sum(results)
-    
+
     # Explicitly free memory
     del tasks
     del results
-    
+
     return total
 
 
@@ -427,7 +428,7 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     the estimated cost would exceed the configured ``cost_limit`` (in
     USD).  If the budget is sufficient, the embeddings are computed
     using ``openai.AsyncOpenAI`` with ``api_base`` pointing at OpenRouter.
-    
+
     The ``--concurrency`` parameter controls how many embedding requests
     are made in parallel using asyncio.  Higher values speed up the process
     but may hit rate limits.  The embeddings are saved incrementally into
@@ -444,11 +445,11 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     ensure_directory(index_dir)
     chunk_dir = data_dir / "chunks"
     progress_file = data_dir / "embedding_progress.txt"
-    
+
     # Load already-completed chunks
     completed_ids = load_embedding_progress(progress_file)
     click.echo(f"Found {len(completed_ids)} already-embedded chunks")
-    
+
     # Load all chunks
     texts: List[str] = []
     metadata: List[dict] = []
@@ -458,25 +459,25 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
             texts.append(obj_j.get("enriched_text", obj_j["text"]))
             meta = {"file": f.stem, "index": obj_j["index"], "start": obj_j["start"], "end": obj_j["end"]}
             metadata.append(meta)
-    
+
     # Filter out already-completed chunks for cost estimation
     remaining_texts = []
     for text, meta in zip(texts, metadata):
         chunk_id = f"{meta['file']}-{meta['index']}"
         if chunk_id not in completed_ids:
             remaining_texts.append(text)
-    
+
     if not remaining_texts:
         click.echo("All chunks have already been embedded!")
         return
-    
+
     click.echo(f"Total chunks: {len(texts)}, remaining to embed: {len(remaining_texts)}")
     est_cost = estimate_embedding_cost(remaining_texts)
     click.echo(f"Estimated embedding cost for remaining chunks: ${est_cost:.4f} at $0.01/M tokens")
     if est_cost > cost_limit:
         click.echo(f"Aborting: estimated cost ${est_cost:.4f} exceeds cost limit ${cost_limit:.2f}")
         return
-    
+
     client = openai.AsyncOpenAI(
         base_url=f"https://{provider}",
         api_key=os.environ.get("OPENROUTER_API_KEY"),
@@ -489,7 +490,7 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     clientdb = chromadb.PersistentClient(path=str(index_dir))
     collection = clientdb.get_or_create_collection(name="hplus_index")
     batch_size = 32 * 3  # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
-    
+
     # Embed and store incrementally
     newly_embedded = asyncio.run(
         embed_and_store_batches(
@@ -497,12 +498,12 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
             collection, progress_file, completed_ids
         )
     )
-    
+
     # Explicitly free memory after embedding is complete
     del texts
     del metadata
     del remaining_texts
-    
+
     click.echo(f"Successfully embedded {newly_embedded} new chunks and saved to {index_dir}")
     click.echo(f"Total embedded chunks: {len(completed_ids)}")
 
@@ -513,9 +514,17 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
 @click.option("--nollm", default=False, help="Skip using an LLM (print context only).")
 @click.option("--contextlimit", type=int, default=256000, help="Maximum tokens in context before aborting (0 for no limit).")
 @click.option("--prompt-fragment", default="", help="Additional instructions to add to the LLM prompt.")
+@click.option("--output-name", default=None, help="Base filename for output (without extension). If not provided, uses timestamp.")
+@click.option("--css-file", default="wrap.css", help="CSS file to use with pandoc for HTML generation.")
+@click.option("--upload/--no-upload", default=True, help="Upload files to server via scp.")
+@click.option("--remote-user", default="bryan", help="Remote SSH user for upload.")
+@click.option("--remote-host", default="gnusha.org", help="Remote SSH host for upload.")
+@click.option("--remote-path", default="~/public_html/irc/chatgpt/hplusroadmap/", help="Remote path for upload.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
-def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, prompt_fragment: str, query: str) -> None:
+def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, prompt_fragment: str,
+          output_name: Optional[str], css_file: str, upload: bool, remote_user: str,
+          remote_host: str, remote_path: str, query: str) -> None:
     """Answer a user question by retrieving relevant IRC messages and calling an LLM.
 
     This command embeds the query using the Qwen3 embedding model, retrieves
@@ -523,7 +532,7 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
     a prompt that includes the retrieved context, and sends the prompt to
     the specified chat model via litellm/openrouter.  The answer is
     printed to stdout.
-    
+
     If no query is provided but a prompt-fragment is given, the LLM will first
     generate appropriate search terms from the prompt-fragment, then use those
     to query the vector database.
@@ -543,7 +552,7 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
         api_key=os.environ.get("OPENROUTER_API_KEY"),
         default_headers={"HTTP-Referer": "http://localhost"},
     )
-    
+
     # If no query provided, generate search terms from prompt-fragment using LLM
     search_query = query
     if not query and prompt_fragment:
@@ -593,8 +602,6 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
         "Answer the following question using the retrieved chat excerpts. Where possible, please include (on the line before the chat excerpt) a specific reference hyperlink to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use (next to the URL that you provide).\n"
         "Where you see papers referenced, please collect those references and display them in your answer. Where you see companies mentioned, like a new company or a name of a company, or the name of people involved in different projects or ventures, or the name of different involved people, please list those in the answer as well. You are writing for a highly technical audience that is deeply interested in esoteric knowledge, technology, engineering, tech development, research, brainstorming, and speculation.\n"
         "If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability."
-        #"Please limit the lengths of lines by using text line wrapping for long lines or quotes (but only in IRC log excerpts)."
-        #"Convert the final output to basic HTML. All links should be HTML hyperlinks.\n\n"
         "\n\n"
     )
     if prompt_fragment:
@@ -620,6 +627,65 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
     )
     answer = llm_response['choices'][0]['message']['content']
     click.echo("\n" + answer.strip())
+
+    # Save output to files
+    data_dir: Path = obj["data_dir"]
+    output_dir = data_dir / "outputs"
+    ensure_directory(output_dir)
+
+    # Generate filename
+    if output_name is None:
+        timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = f"query_{timestamp}"
+    else:
+        base_name = output_name
+
+    md_file = output_dir / f"{base_name}.md"
+    html_file = output_dir / f"{base_name}.md.html"
+
+    # Save markdown file
+    md_file.write_text(answer.strip(), encoding="utf-8")
+    click.echo(f"\n✓ Saved markdown to {md_file}")
+
+    # Generate HTML with pandoc
+    try:
+        pandoc_cmd = [
+            "pandoc",
+            "-f", "markdown+autolink_bare_uris",
+            "-s",
+            "-c", css_file,
+            str(md_file),
+            "-o", str(html_file)
+        ]
+        subprocess.run(pandoc_cmd, check=True, capture_output=True)
+        click.echo(f"✓ Generated HTML at {html_file}")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"⚠ Warning: pandoc failed: {e.stderr.decode()}")
+    except FileNotFoundError:
+        click.echo("⚠ Warning: pandoc not found. Install pandoc to generate HTML.")
+
+    # Upload files via scp
+    if upload:
+        remote_dest = f"{remote_user}@{remote_host}:{remote_path}"
+
+        # Upload markdown
+        try:
+            scp_md_cmd = ["scp", "-p", str(md_file), f"{remote_dest}{base_name}.md"]
+            subprocess.run(scp_md_cmd, check=True, capture_output=True)
+            click.echo(f"✓ Uploaded {md_file.name} to {remote_dest}")
+        except subprocess.CalledProcessError as e:
+            click.echo(f"⚠ Warning: scp failed for markdown: {e.stderr.decode()}")
+        except FileNotFoundError:
+            click.echo("⚠ Warning: scp not found.")
+
+        # Upload HTML if it was generated
+        if html_file.exists():
+            try:
+                scp_html_cmd = ["scp", "-p", str(html_file), f"{remote_dest}{base_name}.md.html"]
+                subprocess.run(scp_html_cmd, check=True, capture_output=True)
+                click.echo(f"✓ Uploaded {html_file.name} to {remote_dest}")
+            except subprocess.CalledProcessError as e:
+                click.echo(f"⚠ Warning: scp failed for HTML: {e.stderr.decode()}")
 
 
 def main() -> None:
