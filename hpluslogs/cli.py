@@ -147,10 +147,10 @@ def chunk_messages(messages: List[Tuple[str, str]], max_tokens: int = 175, overl
     """Split a list of (timestamp, message) pairs into overlapping chunks.
 
     Each chunk concatenates messages until the token count reaches
-    ``max_tokens`` (defaults to 175) and overlaps with the previous
-    chunk by ``overlap`` tokens, following the sliding window technique
-    recommended in recent RAG research.  Metadata such as
-    timestamps and indices are retained in the returned dictionaries.
+    ``max_tokens`` (defaults to 175) and overlaps with
+    the previous chunk by ``overlap`` tokens, following the sliding window
+    technique recommended in recent RAG research.  Metadata such as timestamps
+    and indices are retained in the returned dictionaries.
     """
     chunks: List[dict] = []
     buffer: List[str] = []
@@ -387,7 +387,6 @@ async def embed_and_store_batches(
 
             # Explicitly free memory
             del embeddings
-            del ids
             del filtered_texts
             del filtered_meta
 
@@ -489,7 +488,8 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
         raise click.UsageError("Chroma is not installed. Please install it via `uv pip install chromadb`.")
     clientdb = chromadb.PersistentClient(path=str(index_dir))
     collection = clientdb.get_or_create_collection(name="hplus_index")
-    batch_size = 32 * 3  # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
+    #batch_size = 32 * 3  # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
+    batch_size = 32 * 4 # dunno if this will work. testing with chunk size 500 tokens.
 
     # Embed and store incrementally
     newly_embedded = asyncio.run(
@@ -509,10 +509,11 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
 
 
 @cli.command()
-@click.option("--model", default="openrouter/moonshotai/kimi-k2", help="Chat model to use for answering queries.")
+#@click.option("--model", default="openrouter/moonshotai/kimi-k2", help="Chat model to use for answering queries.")
+@click.option("--model", default="openrouter/x-ai/grok-4-fast", help="Chat model to use for answering queries.")
 @click.option("--top-k", default=100, help="Number of nearest neighbours to retrieve.")
 @click.option("--nollm", default=False, help="Skip using an LLM (print context only).")
-@click.option("--contextlimit", type=int, default=256000, help="Maximum tokens in context before aborting (0 for no limit).")
+@click.option("--contextlimit", type=int, default=1500000, help="Maximum tokens in context before aborting (0 for no limit).")
 @click.option("--prompt-fragment", default="", help="Additional instructions to add to the LLM prompt.")
 @click.option("--output-name", default=None, help="Base filename for output (without extension). If not provided, uses timestamp.")
 @click.option("--css-file", default="wrap.css", help="CSS file to use with pandoc for HTML generation.")
@@ -600,7 +601,7 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
     prompt = (
         "You are an assistant with access to the hplusroadmap IRC logs.\n"
         "Answer the following question using the retrieved chat excerpts. Where possible, please include (on the line before the chat excerpt) a specific reference hyperlink to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use (next to the URL that you provide).\n"
-        "Where you see papers referenced, please collect those references and display them in your answer. Where you see companies mentioned, like a new company or a name of a company, or the name of people involved in different projects or ventures, or the name of different involved people, please list those in the answer as well. You are writing for a highly technical audience that is deeply interested in esoteric knowledge, technology, engineering, tech development, research, brainstorming, and speculation.\n"
+        "Where you see papers referenced, please collect those references and display them in your answer, even if the referenced papers may not be exactly related (e.g. they might be conceptually close, so include them in your output). Where you see companies mentioned, like a new company or a name of a company, or the name of people involved in different projects or ventures, or the name of different involved people, please list those in the answer as well. You are writing for a highly technical audience that is deeply interested in esoteric knowledge, technology, engineering, tech development, research, brainstorming, and speculation.\n"
         "If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability."
         "\n\n"
     )
@@ -625,7 +626,8 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
         api_key=os.environ.get("OPENROUTER_API_KEY"),
         base_url="https://openrouter.ai/api/v1",
     )
-    answer = llm_response['choices'][0]['message']['content']
+    answer = f"Search query: {search_query}\n\n"
+    answer += llm_response['choices'][0]['message']['content']
     click.echo("\n" + answer.strip())
 
     # Save output to files
