@@ -302,7 +302,7 @@ def preprocess(obj: dict, max_tokens: int, overlap: int, enrich: bool) -> None:
     raw_dir = data_dir / "raw"
     chunk_dir = data_dir / "chunks"
     ensure_directory(chunk_dir)
-    for log_file in sorted(raw_dir.glob("*.log")):
+    for log_file in sorted(raw_dir.glob("*.log"))[-22:]:
         out_file = chunk_dir / (log_file.stem + ".jsonl")
         click.echo(f"Processing {log_file.name} …")
         lines = parse_log_lines(log_file.read_text(encoding="utf-8", errors="replace"))
@@ -315,13 +315,20 @@ def preprocess(obj: dict, max_tokens: int, overlap: int, enrich: bool) -> None:
         click.echo(f"Wrote {len(chunks)} chunks to {out_file}")
 
 
-async def embed_batch_async(client: "openai.AsyncOpenAI", model: str, batch_texts: List[str]) -> List[List[float]]:
+async def embed_batch_async(client: "openai.AsyncOpenAI", model: str, batch_texts: List[str], retry: bool = True) -> List[List[float]]:
     """Asynchronously embed a batch of texts using the OpenRouter API.
 
     This helper function is called concurrently to parallelize embedding requests.
     It returns a list of embedding vectors in the same order as the input texts.
     """
-    resp = await client.embeddings.create(model=model, input=batch_texts)
+    try:
+        resp = await client.embeddings.create(model=model, input=batch_texts)
+    except ValueError as err:
+        if retry and "No embedding data received" in str(err):
+            #return []
+            # one-shot retry
+            return await embed_batch_async(client, model, batch_texts, retry=False)
+        raise  # re-raise any other ValueError
     return [item.embedding for item in resp.data]
 
 
@@ -329,7 +336,6 @@ async def embed_and_store_batches(
     client: "openai.AsyncOpenAI",
     model: str,
     texts: List[str],
-    metadata: List[dict],
     batch_size: int,
     concurrency: int,
     collection: "chromadb.Collection",
@@ -345,16 +351,18 @@ async def embed_and_store_batches(
     """
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def embed_and_add_batch(batch_idx: int, batch_texts: List[str], batch_meta: List[dict]) -> int:
+    async def embed_and_add_batch(batch_idx: int, batch_texts: List[str]) -> int:
         async with semaphore:
             # Filter out already-completed chunks
             filtered_texts = []
             filtered_meta = []
-            for text, meta in zip(batch_texts, batch_meta):
-                chunk_id = f"{meta['file']}-{meta['index']}"
+            ids = []
+            for text in batch_texts:
+                chunk_id = text["chunk_id"]
                 if chunk_id not in completed_ids:
-                    filtered_texts.append(text)
-                    filtered_meta.append(meta)
+                    filtered_texts.append(text["text"])
+                    filtered_meta.append(text["meta"])
+                    ids.append(chunk_id)
 
             if not filtered_texts:
                 click.echo(f"Batch {batch_idx + 1}: all chunks already embedded, skipping")
@@ -362,9 +370,7 @@ async def embed_and_store_batches(
 
             click.echo(f"Embedding batch {batch_idx + 1} ({len(filtered_texts)} chunks)…")
             embeddings = await embed_batch_async(client, model, filtered_texts)
-
-            # Prepare data for Chroma
-            ids = [f"{meta['file']}-{meta['index']}" for meta in filtered_meta]
+            click.echo(f"Received embeddings for batch {batch_idx + 1}")
 
             # Add to collection immediately (runs in thread pool to avoid blocking)
             loop = asyncio.get_event_loop()
@@ -396,9 +402,8 @@ async def embed_and_store_batches(
     tasks = []
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i + batch_size]
-        batch_meta = metadata[i:i + batch_size]
         batch_idx = i // batch_size
-        tasks.append(embed_and_add_batch(batch_idx, batch_texts, batch_meta))
+        tasks.append(embed_and_add_batch(batch_idx, batch_texts))
 
     # Process all batches
     results = await asyncio.gather(*tasks)
@@ -416,7 +421,7 @@ async def embed_and_store_batches(
               help="Maximum allowable estimated cost in USD for embedding.")
 @click.option("--provider", default="openrouter.ai/api/v1", help="Base URL for the OpenRouter API.")
 @click.option("--model", default="qwen/qwen3-embedding-8b", help="Embedding model identifier.")
-@click.option("--concurrency", type=int, default=5,
+@click.option("--concurrency", type=int, default=80,
               help="Number of concurrent embedding requests to make in parallel.")
 @click.pass_obj
 def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: int) -> None:
@@ -450,28 +455,34 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     click.echo(f"Found {len(completed_ids)} already-embedded chunks")
 
     # Load all chunks
-    texts: List[str] = []
-    metadata: List[dict] = []
+    #texts: List[str] = []
+    text_len = 0
+    remaining_texts: List[dict] = []
+    #metadata: List[dict] = []
     for f in sorted(chunk_dir.glob("*.jsonl")):
         for line in f.read_text(encoding="utf-8").splitlines():
+            text_len += 1
             obj_j = json.loads(line)
-            texts.append(obj_j.get("enriched_text", obj_j["text"]))
             meta = {"file": f.stem, "index": obj_j["index"], "start": obj_j["start"], "end": obj_j["end"]}
-            metadata.append(meta)
+            chunk_id = f"{meta['file']}-{meta['index']}"
+            # Filter out already-completed chunks
+            if chunk_id not in completed_ids:
+                text_data = obj_j.get("enriched_text", obj_j["text"])
+                #texts.append(text_data)
+                #metadata.append(meta)
+                remaining_texts.append({"text": text_data, "meta": meta, "chunk_id": chunk_id})
 
-    # Filter out already-completed chunks for cost estimation
-    remaining_texts = []
-    for text, meta in zip(texts, metadata):
-        chunk_id = f"{meta['file']}-{meta['index']}"
-        if chunk_id not in completed_ids:
-            remaining_texts.append(text)
+    len_texts = text_len
+    remaining_texts2 = remaining_texts#[50_000:50_000 * 4]
+    del remaining_texts
+    remaining_texts = remaining_texts2
 
     if not remaining_texts:
         click.echo("All chunks have already been embedded!")
         return
 
-    click.echo(f"Total chunks: {len(texts)}, remaining to embed: {len(remaining_texts)}")
-    est_cost = estimate_embedding_cost(remaining_texts)
+    click.echo(f"Total chunks: {len_texts}, remaining to embed: {len(remaining_texts)}")
+    est_cost = estimate_embedding_cost([x["text"] for x in remaining_texts])
     click.echo(f"Estimated embedding cost for remaining chunks: ${est_cost:.4f} at $0.01/M tokens")
     if est_cost > cost_limit:
         click.echo(f"Aborting: estimated cost ${est_cost:.4f} exceeds cost limit ${cost_limit:.2f}")
@@ -489,19 +500,19 @@ def embed(obj: dict, cost_limit: float, provider: str, model: str, concurrency: 
     clientdb = chromadb.PersistentClient(path=str(index_dir))
     collection = clientdb.get_or_create_collection(name="hplus_index")
     #batch_size = 32 * 3  # 32 seems to be about 5500 tokens, model says 32k input, so maybe 3x?
-    batch_size = 32 * 4 # dunno if this will work. testing with chunk size 500 tokens.
+    #batch_size = 32 * 4 # dunno if this will work. testing with chunk size 500 tokens.
+    batch_size = 1000
 
     # Embed and store incrementally
     newly_embedded = asyncio.run(
         embed_and_store_batches(
-            client, model, texts, metadata, batch_size, concurrency,
+            client, model, remaining_texts, batch_size, concurrency,
             collection, progress_file, completed_ids
         )
     )
 
     # Explicitly free memory after embedding is complete
-    del texts
-    del metadata
+    #del metadata
     del remaining_texts
 
     click.echo(f"Successfully embedded {newly_embedded} new chunks and saved to {index_dir}")
@@ -599,10 +610,10 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
             click.echo(f"Context length: {context_tokens}\n\n\n")
 
     prompt = (
-        "You are an assistant with access to the hplusroadmap IRC logs.\n"
-        "Answer the following question using the retrieved chat excerpts. Where possible, please include (on the line before the chat excerpt) a specific reference hyperlink to the IRC log that mentioned that or informed that line of your output based off of the date of the IRC log mapped to the following URL format in year, month, day format: https://gnusha.org/logs/2016-11-01.log which is for 2016-11-01 (November 1st, 2016) as an example. Please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use (next to the URL that you provide).\n"
+        "You are an assistant with access to the hplusroadmap IRC logs. Your job is to answer the following question(s) using the retrieved chat excerpts by constructing an in-depth technical report. The question (query) will be provided below.\n"
+        "If you choose to include a quote from the IRC logs, then please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use. Please edit the excerpt to remove extraneous content.\n"
         "Where you see papers referenced, please collect those references and display them in your answer, even if the referenced papers may not be exactly related (e.g. they might be conceptually close, so include them in your output). Where you see companies mentioned, like a new company or a name of a company, or the name of people involved in different projects or ventures, or the name of different involved people, please list those in the answer as well. You are writing for a highly technical audience that is deeply interested in esoteric knowledge, technology, engineering, tech development, research, brainstorming, and speculation.\n"
-        "If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability."
+        "If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability. The question(s) or query that you have to answer is provided below (the user request and the search_query).\n\n"
         "\n\n"
     )
     if prompt_fragment:
