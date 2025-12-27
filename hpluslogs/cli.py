@@ -917,8 +917,8 @@ def xai_upload(obj: dict, collection_name: str, chunk_size: int, chunk_overlap: 
 @cli.command("xai-query")
 @click.option("--collection-id", default=None,
               help="xAI collection ID. If not provided, reads from data_dir/xai_collection.json.")
-@click.option("--model", default="grok-4-fast",
-              help="Grok model to use for answering queries.")
+@click.option("--model", default="openrouter/x-ai/grok-4-fast",
+              help="LLM model to use for answering queries (via OpenRouter).")
 @click.option("--top-k", default=100, type=int,
               help="Number of search results to retrieve.")
 @click.option("--search-mode", type=click.Choice(["hybrid", "semantic", "keyword"]), default="hybrid",
@@ -979,10 +979,13 @@ def xai_query(obj: dict, collection_id: Optional[str], model: str, top_k: int, s
         timeout=3600,
     )
 
+    if litellm is None:
+        raise click.UsageError("The litellm package is required. Please install it via `uv pip install litellm`.")
+
     # If no query provided, generate search terms from prompt-fragment
     search_query = query
     if not query and prompt_fragment:
-        click.echo("No query provided. Generating search terms from prompt-fragment using Grok...\n")
+        click.echo("No query provided. Generating search terms from prompt-fragment using LLM...\n")
         query_generation_prompt = (
             "You are a search query generator for a semantic search system over IRC chat logs.\n"
             "Based on the user's request below, generate an effective search query.\n"
@@ -991,18 +994,14 @@ def xai_query(obj: dict, collection_id: Optional[str], model: str, top_k: int, s
             f"User request: {prompt_fragment}\n\n"
             "Search query:"
         )
-        query_gen_response = client.chat.create(
+        
+        query_gen_response = litellm.completion(
             model=model,
             messages=[{"role": "user", "content": query_generation_prompt}],
+            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1",
         )
-        # Collect the full response
-        full_response = ""
-        for chunk in query_gen_response:
-            if hasattr(chunk, 'choices') and chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, 'content') and delta.content:
-                    full_response += delta.content
-        search_query = full_response.strip()
+        search_query = query_gen_response['choices'][0]['message']['content'].strip()
         click.echo(f"Generated search query: {search_query}\n")
     elif not query and not prompt_fragment:
         raise click.UsageError("Either a query argument or --prompt-fragment must be provided.")
@@ -1065,23 +1064,19 @@ def xai_query(obj: dict, collection_id: Optional[str], model: str, top_k: int, s
         "Answer:"
     )
 
-    click.echo("Asking Grok...\n")
+    click.echo("Asking the LLM...\n")
 
-    # Use streaming chat completion
-    chat_response = client.chat.create(
+    llm_response = litellm.completion(
         model=model,
         messages=[{"role": "user", "content": prompt}],
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
     )
+    
+    answer_content = llm_response['choices'][0]['message']['content']
+    click.echo(answer_content)
 
-    answer_parts = []
-    for chunk in chat_response:
-        if hasattr(chunk, 'choices') and chunk.choices:
-            delta = chunk.choices[0].delta
-            if hasattr(delta, 'content') and delta.content:
-                answer_parts.append(delta.content)
-                click.echo(delta.content, nl=False)
-
-    answer = f"Search query: {search_query}\n\n" + "".join(answer_parts)
+    answer = f"Search query: {search_query}\n\n" + answer_content
     click.echo("\n")
 
     # Save output to files
