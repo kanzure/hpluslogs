@@ -63,6 +63,10 @@ try:
     import litellm
 except ImportError:
     litellm = None  # type: ignore
+try:
+    import xai_sdk
+except ImportError:
+    xai_sdk = None  # type: ignore
 
 
 ###############################################################################
@@ -692,6 +696,440 @@ def query(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, pro
             click.echo("⚠ Warning: scp not found.")
 
         # Upload HTML if it was generated
+        if html_file.exists():
+            try:
+                scp_html_cmd = ["scp", "-p", str(html_file), f"{remote_dest}{base_name}.md.html"]
+                subprocess.run(scp_html_cmd, check=True, capture_output=True)
+                click.echo(f"✓ Uploaded {html_file.name} to {remote_dest}")
+            except subprocess.CalledProcessError as e:
+                click.echo(f"⚠ Warning: scp failed for HTML: {e.stderr.decode()}")
+
+
+###############################################################################
+# xAI Collections Commands
+###############################################################################
+
+async def upload_file_async(
+    client: "xai_sdk.AsyncClient",
+    collection_id: str,
+    log_file: Path,
+    semaphore: asyncio.Semaphore,
+    wait_for_indexing: bool = False,
+) -> Tuple[str, bool, Optional[str]]:
+    """Upload a single file to xAI collection asynchronously.
+    
+    Returns a tuple of (filename, success, error_message).
+    """
+    async with semaphore:
+        file_date = log_file.stem  # e.g., "2025-01-15"
+        try:
+            file_data = log_file.read_bytes()
+            document = await client.collections.upload_document(
+                collection_id=collection_id,
+                name=log_file.name,
+                data=file_data,
+                fields={
+                    "date": file_date,
+                    "filename": log_file.name,
+                },
+                wait_for_indexing=wait_for_indexing,
+            )
+            return (log_file.name, True, document.file_metadata.file_id)
+        except Exception as e:
+            return (log_file.name, False, str(e))
+
+
+async def xai_upload_async(
+    collection_id: str,
+    log_files: List[Path],
+    uploaded_files: set,
+    concurrency: int,
+    wait_for_indexing: bool,
+    resume: bool,
+) -> Tuple[int, int, set]:
+    """Upload multiple files to xAI collection concurrently.
+    
+    Returns (uploaded_count, failed_count, newly_uploaded_files).
+    """
+    client = xai_sdk.AsyncClient(
+        api_key=os.environ.get("XAI_API_KEY"),
+        management_api_key=os.environ.get("XAI_MANAGEMENT_API_KEY"),
+        timeout=3600,
+    )
+    
+    semaphore = asyncio.Semaphore(concurrency)
+    
+    # Filter files to upload
+    files_to_upload = []
+    for log_file in log_files:
+        if resume and log_file.name in uploaded_files:
+            click.echo(f"✓ {log_file.name} already uploaded, skipping")
+            continue
+        files_to_upload.append(log_file)
+    
+    if not files_to_upload:
+        click.echo("No new files to upload.")
+        return (0, 0, set())
+    
+    click.echo(f"Uploading {len(files_to_upload)} files with concurrency={concurrency}...")
+    
+    # Create upload tasks
+    tasks = [
+        upload_file_async(client, collection_id, log_file, semaphore, wait_for_indexing)
+        for log_file in files_to_upload
+    ]
+    
+    # Process with progress reporting
+    uploaded_count = 0
+    failed_count = 0
+    newly_uploaded = set()
+    
+    # Use asyncio.as_completed for progress updates
+    for i, coro in enumerate(asyncio.as_completed(tasks), 1):
+        filename, success, result = await coro
+        if success:
+            click.echo(f"[{i}/{len(tasks)}] ✓ {filename} -> {result}")
+            newly_uploaded.add(filename)
+            uploaded_count += 1
+        else:
+            click.echo(f"[{i}/{len(tasks)}] ✗ {filename}: {result}")
+            failed_count += 1
+    
+    await client.close()
+    return (uploaded_count, failed_count, newly_uploaded)
+
+
+@cli.command("xai-upload")
+@click.option("--collection-name", default="hplusroadmap-logs",
+              help="Name for the xAI collection.")
+@click.option("--chunk-size", default=500, type=int,
+              help="Maximum tokens per chunk (server-side chunking).")
+@click.option("--chunk-overlap", default=50, type=int,
+              help="Token overlap between chunks.")
+@click.option("--resume/--no-resume", default=True,
+              help="Skip files that have already been uploaded.")
+@click.option("--concurrency", type=int, default=100,
+              help="Number of concurrent upload requests (default: 100).")
+@click.option("--wait-for-indexing/--no-wait-for-indexing", default=False,
+              help="Wait for each document to be indexed before continuing (slower but ensures indexing).")
+@click.pass_obj
+def xai_upload(obj: dict, collection_name: str, chunk_size: int, chunk_overlap: int, 
+               resume: bool, concurrency: int, wait_for_indexing: bool) -> None:
+    """Upload raw IRC logs to xAI Collections with parallel uploads.
+
+    This command creates an xAI collection (if it doesn't exist) and uploads
+    all raw log files from ``data_dir/raw`` using concurrent requests.  xAI 
+    handles chunking server-side using the specified token configuration.  
+    Each log file is tagged with a ``date`` metadata field for filtered retrieval.
+
+    The ``--concurrency`` parameter controls how many uploads run in parallel.
+    Higher values speed up the process significantly (e.g., 100 concurrent uploads
+    can reduce total time from hours to minutes for large archives).
+
+    By default, uploads do not wait for indexing to complete (--no-wait-for-indexing).
+    This is much faster but means documents may not be immediately searchable.
+    Use --wait-for-indexing if you need documents to be searchable right away.
+
+    Requires XAI_API_KEY and XAI_MANAGEMENT_API_KEY environment variables.
+    """
+    if xai_sdk is None:
+        raise click.UsageError("The xai-sdk package is not installed. Please install it via `uv pip install xai-sdk`.")
+
+    data_dir: Path = obj["data_dir"]
+    raw_dir = data_dir / "raw"
+    xai_config_file = data_dir / "xai_collection.json"
+
+    if not raw_dir.exists():
+        raise click.UsageError(f"Raw logs directory does not exist: {raw_dir}")
+
+    log_files = sorted(raw_dir.glob("*.log"))
+    if not log_files:
+        click.echo("No log files found to upload.")
+        return
+
+    # Check if we have an existing collection
+    collection_id = None
+    uploaded_files: set = set()
+    if xai_config_file.exists():
+        config = json.loads(xai_config_file.read_text(encoding="utf-8"))
+        collection_id = config.get("collection_id")
+        uploaded_files = set(config.get("uploaded_files", []))
+        click.echo(f"Found existing collection: {collection_id}")
+        click.echo(f"Already uploaded: {len(uploaded_files)} files")
+
+    # Create collection if needed (use sync client for this one-time operation)
+    if collection_id is None:
+        click.echo(f"Creating collection '{collection_name}'...")
+        sync_client = xai_sdk.Client(
+            api_key=os.environ.get("XAI_API_KEY"),
+            management_api_key=os.environ.get("XAI_MANAGEMENT_API_KEY"),
+            timeout=3600,
+        )
+        collection = sync_client.collections.create(
+            name=collection_name,
+            chunk_configuration={
+                "tokens_configuration": {
+                    "max_chunk_size_tokens": chunk_size,
+                    "chunk_overlap_tokens": chunk_overlap,
+                    "encoding_name": "o200k_base",
+                },
+                "strip_whitespace": True,
+            },
+            field_definitions=[
+                {"key": "date", "required": True, "unique": False, "inject_into_chunk": True},
+                {"key": "filename", "required": True, "unique": False, "inject_into_chunk": False},
+            ],
+        )
+        collection_id = collection.collection_id
+        click.echo(f"Created collection: {collection_id}")
+
+        # Save config
+        config = {"collection_id": collection_id, "collection_name": collection_name, "uploaded_files": []}
+        xai_config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    # Run async uploads
+    click.echo(f"\nTotal files: {len(log_files)}, Already uploaded: {len(uploaded_files)}")
+    uploaded_count, failed_count, newly_uploaded = asyncio.run(
+        xai_upload_async(
+            collection_id=collection_id,
+            log_files=log_files,
+            uploaded_files=uploaded_files,
+            concurrency=concurrency,
+            wait_for_indexing=wait_for_indexing,
+            resume=resume,
+        )
+    )
+
+    # Update config with newly uploaded files
+    if newly_uploaded:
+        uploaded_files.update(newly_uploaded)
+        config = json.loads(xai_config_file.read_text(encoding="utf-8"))
+        config["uploaded_files"] = list(uploaded_files)
+        xai_config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    click.echo(f"\nDone! Uploaded: {uploaded_count}, Failed: {failed_count}, Total in collection: {len(uploaded_files)}")
+    click.echo(f"Collection ID: {collection_id}")
+    if not wait_for_indexing and uploaded_count > 0:
+        click.echo("\nNote: Documents were uploaded without waiting for indexing.")
+        click.echo("They may take a few minutes to become searchable.")
+
+
+@cli.command("xai-query")
+@click.option("--collection-id", default=None,
+              help="xAI collection ID. If not provided, reads from data_dir/xai_collection.json.")
+@click.option("--model", default="grok-4-fast",
+              help="Grok model to use for answering queries.")
+@click.option("--top-k", default=100, type=int,
+              help="Number of search results to retrieve.")
+@click.option("--search-mode", type=click.Choice(["hybrid", "semantic", "keyword"]), default="hybrid",
+              help="Search mode: hybrid (default), semantic, or keyword.")
+@click.option("--date-filter", default=None,
+              help="Filter by date range, e.g., 'date >= \"2024-01-01\"' or 'date >= \"2024-01-01\" AND date <= \"2024-12-31\"'.")
+@click.option("--nollm", is_flag=True, default=False,
+              help="Skip LLM generation (print retrieved context only).")
+@click.option("--prompt-fragment", default="",
+              help="Additional instructions to add to the LLM prompt.")
+@click.option("--output-name", default=None,
+              help="Base filename for output (without extension).")
+@click.option("--css-file", default="wrap.css",
+              help="CSS file to use with pandoc for HTML generation.")
+@click.option("--upload/--no-upload", default=True,
+              help="Upload files to server via scp.")
+@click.option("--remote-user", default="bryan",
+              help="Remote SSH user for upload.")
+@click.option("--remote-host", default="gnusha.org",
+              help="Remote SSH host for upload.")
+@click.option("--remote-path", default="~/public_html/irc/chatgpt/hplusroadmap/",
+              help="Remote path for upload.")
+@click.argument("query", required=False, default="")
+@click.pass_obj
+def xai_query(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
+              date_filter: Optional[str], nollm: bool, prompt_fragment: str, output_name: Optional[str],
+              css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
+              query: str) -> None:
+    """Query xAI Collections and generate an answer using Grok.
+
+    This command searches the xAI collection for relevant IRC log excerpts,
+    then uses a Grok model to generate a comprehensive answer.  Supports
+    hybrid, semantic, or keyword search modes, and optional date filtering.
+
+    If no query is provided but a prompt-fragment is given, the LLM will first
+    generate appropriate search terms from the prompt-fragment.
+
+    Requires XAI_API_KEY environment variable.
+    """
+    if xai_sdk is None:
+        raise click.UsageError("The xai-sdk package is not installed. Please install it via `uv pip install xai-sdk`.")
+
+    data_dir: Path = obj["data_dir"]
+    xai_config_file = data_dir / "xai_collection.json"
+
+    # Get collection ID
+    if collection_id is None:
+        if not xai_config_file.exists():
+            raise click.UsageError("No collection ID provided and no xai_collection.json found. Run xai-upload first.")
+        config = json.loads(xai_config_file.read_text(encoding="utf-8"))
+        collection_id = config.get("collection_id")
+        if not collection_id:
+            raise click.UsageError("No collection_id found in xai_collection.json")
+
+    # Initialize xAI client
+    client = xai_sdk.Client(
+        api_key=os.environ.get("XAI_API_KEY"),
+        timeout=3600,
+    )
+
+    # If no query provided, generate search terms from prompt-fragment
+    search_query = query
+    if not query and prompt_fragment:
+        click.echo("No query provided. Generating search terms from prompt-fragment using Grok...\n")
+        query_generation_prompt = (
+            "You are a search query generator for a semantic search system over IRC chat logs.\n"
+            "Based on the user's request below, generate an effective search query.\n"
+            "The query should be a concise list of key terms, concepts, or phrases that would help retrieve relevant messages.\n"
+            "Return ONLY the search query text, nothing else.\n\n"
+            f"User request: {prompt_fragment}\n\n"
+            "Search query:"
+        )
+        query_gen_response = client.chat.create(
+            model=model,
+            messages=[{"role": "user", "content": query_generation_prompt}],
+        )
+        # Collect the full response
+        full_response = ""
+        for chunk in query_gen_response:
+            if hasattr(chunk, 'choices') and chunk.choices:
+                delta = chunk.choices[0].delta
+                if hasattr(delta, 'content') and delta.content:
+                    full_response += delta.content
+        search_query = full_response.strip()
+        click.echo(f"Generated search query: {search_query}\n")
+    elif not query and not prompt_fragment:
+        raise click.UsageError("Either a query argument or --prompt-fragment must be provided.")
+
+    # Search the collection
+    click.echo(f"Searching collection {collection_id}...")
+    click.echo(f"Search mode: {search_mode}, Top-K: {top_k}")
+    if date_filter:
+        click.echo(f"Date filter: {date_filter}")
+
+    search_kwargs = {
+        "query": search_query,
+        "collection_ids": [collection_id],
+        "limit": top_k,
+        "retrieval_mode": search_mode, #{"type": search_mode},
+    }
+    if date_filter:
+        search_kwargs["filter"] = date_filter
+
+    results = client.collections.search(**search_kwargs)
+
+    # Build context from search results
+    context_parts = []
+    for match in results.matches:
+        # Extract metadata if available
+        meta_str = f"[Score: {match.score:.4f}]"
+        if hasattr(match, 'metadata') and match.metadata:
+            if 'date' in match.metadata:
+                meta_str = f"[Date: {match.metadata['date']}, Score: {match.score:.4f}]"
+        context_parts.append(f"{meta_str}\n{match.chunk_content}")
+
+    context = "\n\n".join(context_parts)
+    click.echo(f"\nRetrieved {len(results.matches)} matches.")
+    click.echo("\nContext: <context>" + context[:2000] + "...</context>\n\n")
+
+    if nollm:
+        click.echo("\nFull context:")
+        click.echo(context)
+        click.echo("\nExiting due to --nollm flag.")
+        return
+
+    # Check context length
+    context_tokens = token_count(context)
+    click.echo(f"Context length: {context_tokens} tokens\n")
+
+    # Build prompt
+    prompt = (
+        "You are an assistant with access to the hplusroadmap IRC logs. Your job is to answer the following question(s) using the retrieved chat excerpts by constructing an in-depth technical report. The question (query) will be provided below.\n"
+        "If you choose to include a quote from the IRC logs, then please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use. Please edit the excerpt to remove extraneous content.\n"
+        "Where you see papers referenced, please collect those references and display them in your answer, even if the referenced papers may not be exactly related (e.g. they might be conceptually close, so include them in your output). Where you see companies mentioned, like a new company or a name of a company, or the name of people involved in different projects or ventures, or the name of different involved people, please list those in the answer as well. You are writing for a highly technical audience that is deeply interested in esoteric knowledge, technology, engineering, tech development, research, brainstorming, and speculation.\n"
+        "If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability. The question(s) or query that you have to answer is provided below (the user request and the search_query).\n\n"
+    )
+
+    if prompt_fragment:
+        prompt += f"User request: <prompt>{prompt_fragment}</prompt>\n\n"
+
+    prompt += (
+        f"Search query used: <search_query>{search_query}</search_query>\n\n"
+        f"Retrieved Context:\n<context>{context}</context>\n\n"
+        "Answer:"
+    )
+
+    click.echo("Asking Grok...\n")
+
+    # Use streaming chat completion
+    chat_response = client.chat.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    answer_parts = []
+    for chunk in chat_response:
+        if hasattr(chunk, 'choices') and chunk.choices:
+            delta = chunk.choices[0].delta
+            if hasattr(delta, 'content') and delta.content:
+                answer_parts.append(delta.content)
+                click.echo(delta.content, nl=False)
+
+    answer = f"Search query: {search_query}\n\n" + "".join(answer_parts)
+    click.echo("\n")
+
+    # Save output to files
+    output_dir = data_dir / "outputs"
+    ensure_directory(output_dir)
+
+    if output_name is None:
+        timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_name = f"xai_query_{timestamp}"
+    else:
+        base_name = output_name
+
+    md_file = output_dir / f"{base_name}.md"
+    html_file = output_dir / f"{base_name}.md.html"
+
+    md_file.write_text(answer.strip(), encoding="utf-8")
+    click.echo(f"\n✓ Saved markdown to {md_file}")
+
+    # Generate HTML with pandoc
+    try:
+        pandoc_cmd = [
+            "pandoc",
+            "-f", "markdown+autolink_bare_uris",
+            "-s",
+            "-c", css_file,
+            str(md_file),
+            "-o", str(html_file)
+        ]
+        subprocess.run(pandoc_cmd, check=True, capture_output=True)
+        click.echo(f"✓ Generated HTML at {html_file}")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"⚠ Warning: pandoc failed: {e.stderr.decode()}")
+    except FileNotFoundError:
+        click.echo("⚠ Warning: pandoc not found. Install pandoc to generate HTML.")
+
+    # Upload files via scp
+    if upload:
+        remote_dest = f"{remote_user}@{remote_host}:{remote_path}"
+
+        try:
+            scp_md_cmd = ["scp", "-p", str(md_file), f"{remote_dest}{base_name}.md"]
+            subprocess.run(scp_md_cmd, check=True, capture_output=True)
+            click.echo(f"✓ Uploaded {md_file.name} to {remote_dest}")
+        except subprocess.CalledProcessError as e:
+            click.echo(f"⚠ Warning: scp failed for markdown: {e.stderr.decode()}")
+        except FileNotFoundError:
+            click.echo("⚠ Warning: scp not found.")
+
         if html_file.exists():
             try:
                 scp_html_cmd = ["scp", "-p", str(html_file), f"{remote_dest}{base_name}.md.html"]
