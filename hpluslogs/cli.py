@@ -1597,6 +1597,15 @@ def fightaging_query(obj: dict, collection_id: Optional[str], model: str, top_k:
     if upload:
         remote_dest = f"{remote_user}@{remote_host}:{remote_path}"
 
+        # Ensure remote directory exists
+        try:
+            mkdir_cmd = ["ssh", f"{remote_user}@{remote_host}", f"mkdir -p {remote_path}"]
+            subprocess.run(mkdir_cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            click.echo(f"⚠ Warning: failed to create remote directory: {e.stderr.decode()}")
+        except FileNotFoundError:
+            click.echo("⚠ Warning: ssh not found.")
+
         try:
             scp_md_cmd = ["scp", "-p", str(md_file), f"{remote_dest}{base_name}.md"]
             subprocess.run(scp_md_cmd, check=True, capture_output=True)
