@@ -30,6 +30,22 @@ User request: {prompt_fragment}
 Search query:"""
 
 
+LESSWRONG_SYSTEM_PROMPT = """You are an assistant with access to the LessWrong IRC logs. LessWrong is a community focused on rationality, AI alignment, effective altruism, and related topics. Your job is to answer the following question(s) using the retrieved chat excerpts by constructing an in-depth technical report.
+
+If you choose to include a quote from the IRC logs, please use markdown format and GitHub markdown formatted four-space block quotes for the IRC log excerpts that you use. Please edit the excerpt to remove extraneous content.
+Where you see papers referenced, please collect those references and display them in your answer. Where you see researchers, organizations, or concepts mentioned, please list those in the answer as well. You are writing for a highly technical audience interested in rationality, AI safety, decision theory, and related fields.
+If the logs do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability."""
+
+LESSWRONG_SEARCH_QUERY_PROMPT = """You are a search query generator for a semantic search system over LessWrong IRC chat logs about rationality, AI alignment, effective altruism, and related topics.
+Based on the user's request below, generate an effective search query.
+The query should be a concise list of key terms, concepts, or phrases that would help retrieve relevant messages.
+Return ONLY the search query text, nothing else.
+
+User request: {prompt_fragment}
+
+Search query:"""
+
+
 def build_rag_prompt(query: str, context: str, prompt_fragment: str = "", system_prompt: str = RAG_SYSTEM_PROMPT) -> str:
     """Build the full RAG prompt."""
     parts = [system_prompt, "\n\n"]
