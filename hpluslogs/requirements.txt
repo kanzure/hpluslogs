@@ -1,0 +1,8 @@
+xai-sdk
+click
+requests
+tiktoken
+httpx==0.28.1
+litellm
+
+chromadb==1.4.0
