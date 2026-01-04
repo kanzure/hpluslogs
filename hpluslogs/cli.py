@@ -106,6 +106,24 @@ def query_cmd(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int,
     
     click.echo("\nContext: <context>" + context + "</context>\n\n")
     
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="query"
+    )
+    
+    # Upload context file before LLM call
+    context_content = f"# Context for: {search_query}\n\n{context}"
+    publishing.output(
+        data_dir, context_content, 
+        output_name=(output_name + ".context") if output_name else None,
+        css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="query.context"
+    )
+    
     if nollm:
         click.echo("\nExiting due to --nollm flag.")
         return
@@ -221,6 +239,14 @@ def xai_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
     click.echo("\nContext: <context>" + context[:2000] + "...</context>\n\n")
+
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="xai_query"
+    )
 
     if nollm:
         click.echo("\nFull context:")
@@ -341,6 +367,14 @@ def fightaging_query_cmd(obj: dict, collection_id: Optional[str], model: str, to
     click.echo(f"\nRetrieved {len(results)} matches.")
     click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
 
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="fightaging_query"
+    )
+
     if nollm:
         click.echo("\nFull context:")
         click.echo(context)
@@ -455,6 +489,14 @@ def lesswrong_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
     click.echo(f"\nRetrieved {len(results)} matches.")
     click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
 
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="lesswrong_query"
+    )
+
     if nollm:
         click.echo("\nFull context:")
         click.echo(context)
@@ -563,7 +605,16 @@ def grg_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
-    click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
+    #click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
+    click.echo(f"\nContext: <context>{context}</context>\n\n")
+
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="grg_query"
+    )
 
     if nollm:
         click.echo("\nFull context:")
@@ -642,7 +693,7 @@ def orionsarm_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
                         query: str) -> None:
     """Query Orion's Arm encyclopedia and generate an answer."""
     from hpluslogs.core.prompts import ORIONSARM_SYSTEM_PROMPT
-    
+
     data_dir: Path = obj["data_dir"]
     config_file = data_dir / "orionsarm_collection.json"
 
@@ -675,7 +726,16 @@ def orionsarm_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
-    click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
+    #click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
+    click.echo(f"\nContext: <context>{context}</context>\n\n")
+
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="orionsarm_query"
+    )
 
     if nollm:
         click.echo("\nFull context:")
