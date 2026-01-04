@@ -270,9 +270,51 @@ ls *.md | xargs -I {} pandoc -s {} -c wrap.css -o {}.html
 
 date; x=$(voice); date; time python3 -m cli query --top-k 300 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x"
 date; x=$(voice); date; time python3 -m cli query --top-k 300 --model openrouter/x-ai/grok-4-fast --prompt-fragment "$x" --output-name "fenn"
-
+date; time python3 -m cli query --top-k 300 --model openrouter/x-ai/grok-4-fast "SETI, search for extraterrestrial intelligence" --output-name "seti"
 
 pandoc -f markdown+autolink_bare_uris -s -c wrap.css biocomputing2.md -o biocomputing2.md.html
+
+
+
+TODO:
+- [ ] preprocess: save progress. do not repeat chunking for all of the logs.
+- [ ] ensure the log downloader only downloads the new files that have not yet been retrieved (e.g. look at the most recent retrieved log file, retrieve that one again, and then retrieve each day after until we reach today's date)
+
+hplus_index - 175 tokens, 20 tokens overlap
+hplus_index_large - 500 tokens, 50 tokens overlap
+
+- [ ] switch to in-memory chroma db using ramfs, don't reload per request or whatever.. we're doing a lot of embeddings!
+
+
+
+# Upload all raw logs to xAI Collections
+python3 -m hpluslogs.cli xai-upload --collection-name "hplusroadmap-logs" --chunk-size 500 --chunk-overlap 50 --concurrency 1
+# Query using xAI Collections + Grok
+python3 -m hpluslogs.cli xai-query "CRISPR gene editing techniques" --top-k 300
+# Query with date filtering
+python3 -m hpluslogs.cli xai-query "brain-computer interfaces" --date-filter 'date >= "2024-01-01"' --top-k 100
+
+
+python3 -m cli xai-query "anti-aging genetic engineering interventions for longevity" --top-k 300 --model openrouter/moonshotai/kimi-k2-thinking --prompt-fragment "Any information about anti-aging genetic engineering or longevity interventions that could be used as a transgenic intervention, either a knockdown, knockout, hypermorph, hypomorph, gain of function, loss of function, etc, informed by supplementation or nutrition or otherwise, or other information about longevity from a genetics point of view, or could be a speculative approach to longevity." --output-name longevity.fightaging-xai-collection.kimi-k2-thinking
+
+python -m cli fightaging-collect --concurrency=1
+
+
+
+
+Set up so that you use the three environment variables for the XAI management API key and the XAI API key and also the open router API key.
+
+
+
+python3 -m hpluslogs.cli orionsarm-query "writing guidelines or rules" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "writing-guidelines.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "immortality or immortals or longevity or anti-aging or indefinite lifespan" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "immortality.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "bioweapons" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "bioweapons.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "cryonics or cryopreservation" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "cryonics.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "genetic engineering enhancements or genetic engineering targets or genengineering target traits" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "genetic-engineering.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "brain uploading and brain uploading methods" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "brain-uploading.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "super intelligence" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "superintelligence.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "science fiction book recommendation" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "scifi-recommendations.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "exotic matter" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "exotic-matter.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "space tethers" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "space-tethers.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "weird or very large space ships" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "spaceships.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "alien molecular biology" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "biology.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "star dams or other daming of stars or enclosures of star systems" --prompt-fragment "Speculation and ideas pertaining to star dams or enclosures around stars and star systems, or even larger structures." --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "stardams.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "largest megastructures" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "megastructures.xai-collection";
+
+
+GRG queries TODO:
+cancer
+anti-cancer pathways
+young blood rejuvenation
+plasma exchange
+plasma filtering
 
 
 
