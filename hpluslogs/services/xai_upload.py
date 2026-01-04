@@ -259,6 +259,164 @@ def run_lesswrong(
         click.echo("\nNote: Documents were uploaded without waiting for indexing.")
 
 
+def run_orionsarm(
+    data_dir: Path,
+    collection_name: str = "orionsarm-encyclopedia",
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+    resume: bool = True,
+    concurrency: int = 100,
+    wait_for_indexing: bool = False,
+) -> None:
+    """Upload Orion's Arm files to xAI Collections."""
+    raw_dir = data_dir / "raw-more" / "orionsarm"
+    config_file = data_dir / "orionsarm_collection.json"
+
+    if not raw_dir.exists():
+        raise click.UsageError(f"Orion's Arm directory does not exist: {raw_dir}")
+
+    # Collect all files (html, txt, etc.)
+    all_files: List[Tuple[Path, dict]] = []
+    for f in sorted(raw_dir.iterdir()):
+        if f.is_file():
+            all_files.append((f, {"filename": f.name}))
+
+    if not all_files:
+        click.echo("No files found to upload.")
+        return
+
+    click.echo(f"Found {len(all_files)} files")
+
+    # Check if we have an existing collection
+    collection_id = None
+    uploaded_files: Set[str] = set()
+    if config_file.exists():
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        collection_id = config.get("collection_id")
+        uploaded_files = set(config.get("uploaded_files", []))
+        click.echo(f"Found existing collection: {collection_id}")
+        click.echo(f"Already uploaded: {len(uploaded_files)} files")
+
+    # Create collection if needed
+    if collection_id is None:
+        click.echo(f"Creating collection '{collection_name}'...")
+        collection_id = xai.create_collection(
+            name=collection_name,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            field_definitions=[
+                {"key": "filename", "required": True, "unique": False, "inject_into_chunk": False},
+            ],
+        )
+        click.echo(f"Created collection: {collection_id}")
+
+        config = {"collection_id": collection_id, "collection_name": collection_name, "uploaded_files": []}
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    click.echo(f"\nTotal files: {len(all_files)}, Already uploaded: {len(uploaded_files)}")
+    uploaded_count, failed_count, newly_uploaded = asyncio.run(
+        upload_files_async(
+            collection_id=collection_id,
+            files=all_files,
+            uploaded_files=uploaded_files,
+            concurrency=concurrency,
+            wait_for_indexing=wait_for_indexing,
+            resume=resume,
+        )
+    )
+
+    # Update config with newly uploaded files
+    if newly_uploaded:
+        uploaded_files.update(newly_uploaded)
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        config["uploaded_files"] = list(uploaded_files)
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    click.echo(f"\nDone! Uploaded: {uploaded_count}, Failed: {failed_count}, Total in collection: {len(uploaded_files)}")
+    click.echo(f"Collection ID: {collection_id}")
+    if not wait_for_indexing and uploaded_count > 0:
+        click.echo("\nNote: Documents were uploaded without waiting for indexing.")
+
+
+def run_grg(
+    data_dir: Path,
+    collection_name: str = "grg-mailing-list",
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+    resume: bool = True,
+    concurrency: int = 100,
+    wait_for_indexing: bool = False,
+) -> None:
+    """Upload GRG (Gerontology Research Group) mailing list files to xAI Collections."""
+    raw_dir = data_dir / "raw-more" / "grg"
+    config_file = data_dir / "grg_collection.json"
+
+    if not raw_dir.exists():
+        raise click.UsageError(f"GRG directory does not exist: {raw_dir}")
+
+    # Collect all files
+    all_files: List[Tuple[Path, dict]] = []
+    for f in sorted(raw_dir.iterdir()):
+        if f.is_file():
+            all_files.append((f, {"filename": f.name}))
+
+    if not all_files:
+        click.echo("No files found to upload.")
+        return
+
+    click.echo(f"Found {len(all_files)} files")
+
+    # Check if we have an existing collection
+    collection_id = None
+    uploaded_files: Set[str] = set()
+    if config_file.exists():
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        collection_id = config.get("collection_id")
+        uploaded_files = set(config.get("uploaded_files", []))
+        click.echo(f"Found existing collection: {collection_id}")
+        click.echo(f"Already uploaded: {len(uploaded_files)} files")
+
+    # Create collection if needed
+    if collection_id is None:
+        click.echo(f"Creating collection '{collection_name}'...")
+        collection_id = xai.create_collection(
+            name=collection_name,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            field_definitions=[
+                {"key": "filename", "required": True, "unique": False, "inject_into_chunk": False},
+            ],
+        )
+        click.echo(f"Created collection: {collection_id}")
+
+        config = {"collection_id": collection_id, "collection_name": collection_name, "uploaded_files": []}
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    click.echo(f"\nTotal files: {len(all_files)}, Already uploaded: {len(uploaded_files)}")
+    uploaded_count, failed_count, newly_uploaded = asyncio.run(
+        upload_files_async(
+            collection_id=collection_id,
+            files=all_files,
+            uploaded_files=uploaded_files,
+            concurrency=concurrency,
+            wait_for_indexing=wait_for_indexing,
+            resume=resume,
+        )
+    )
+
+    # Update config with newly uploaded files
+    if newly_uploaded:
+        uploaded_files.update(newly_uploaded)
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        config["uploaded_files"] = list(uploaded_files)
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    click.echo(f"\nDone! Uploaded: {uploaded_count}, Failed: {failed_count}, Total in collection: {len(uploaded_files)}")
+    click.echo(f"Collection ID: {collection_id}")
+    if not wait_for_indexing and uploaded_count > 0:
+        click.echo("\nNote: Documents were uploaded without waiting for indexing.")
+
+
 def run_fightaging(
     data_dir: Path,
     collection_name: str = "fightaging-articles",

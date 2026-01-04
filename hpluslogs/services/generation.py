@@ -7,8 +7,12 @@ from typing import Any, Dict, List
 from hpluslogs.core.prompts import (
     FIGHTAGING_SEARCH_QUERY_PROMPT,
     FIGHTAGING_SYSTEM_PROMPT,
+    GRG_SEARCH_QUERY_PROMPT,
+    GRG_SYSTEM_PROMPT,
     LESSWRONG_SEARCH_QUERY_PROMPT,
     LESSWRONG_SYSTEM_PROMPT,
+    ORIONSARM_SEARCH_QUERY_PROMPT,
+    ORIONSARM_SYSTEM_PROMPT,
     RAG_SYSTEM_PROMPT,
     SEARCH_QUERY_GENERATION_PROMPT,
     build_rag_prompt,
@@ -35,12 +39,18 @@ def generate_search_query(
     model: str,
     for_fightaging: bool = False,
     for_lesswrong: bool = False,
+    for_orionsarm: bool = False,
+    for_grg: bool = False,
 ) -> str:
     """Generate search terms from a user request."""
     if for_fightaging:
         prompt = FIGHTAGING_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
     elif for_lesswrong:
         prompt = LESSWRONG_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
+    elif for_orionsarm:
+        prompt = ORIONSARM_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
+    elif for_grg:
+        prompt = GRG_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
     else:
         prompt = SEARCH_QUERY_GENERATION_PROMPT.format(prompt_fragment=prompt_fragment)
     return openrouter.complete(prompt, model).strip()

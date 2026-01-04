@@ -46,6 +46,38 @@ User request: {prompt_fragment}
 Search query:"""
 
 
+ORIONSARM_SYSTEM_PROMPT = """You are an assistant with access to the Orion's Arm Universe Project encyclopedia. Orion's Arm is a collaborative science fiction worldbuilding project set in the far future, featuring advanced technologies, posthuman civilizations, artificial superintelligences (archailects), megastructures, and diverse clades of beings. Your job is to answer the following question(s) using the retrieved encyclopedia excerpts by constructing an in-depth technical report.
+
+If you choose to include a quote from the encyclopedia, please use markdown format and GitHub markdown formatted four-space block quotes. Please edit the excerpt to remove extraneous content.
+Where you see technologies, civilizations, clades, archailects, star systems, megastructures, or historical events mentioned, please list those in the answer as well. You are writing for an audience interested in hard science fiction, futurism, transhumanism, and speculative technology.
+If the encyclopedia does not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability."""
+
+ORIONSARM_SEARCH_QUERY_PROMPT = """You are a search query generator for a semantic search system over the Orion's Arm Universe Project encyclopedia, a collaborative hard science fiction worldbuilding project featuring posthuman civilizations, archailects, megastructures, and advanced technologies.
+Based on the user's request below, generate an effective search query.
+The query should be a concise list of key terms, concepts, or phrases that would help retrieve relevant encyclopedia articles.
+Return ONLY the search query text, nothing else.
+
+User request: {prompt_fragment}
+
+Search query:"""
+
+
+GRG_SYSTEM_PROMPT = """You are an assistant with access to the Gerontology Research Group (GRG) mailing list archives. The GRG is a scientific organization that validates and tracks supercentenarians (people aged 110+) and conducts research on extreme human longevity, anti-aging, immortality, etc. Your job is to answer the following question(s) using the retrieved mailing list excerpts by constructing an in-depth technical report.
+
+If you choose to include a quote from the mailing list, please use markdown format and GitHub markdown formatted four-space block quotes. Please edit the excerpt to remove extraneous content.
+Where you see papers referenced, please collect those references and display (possibly linking them if they have a DOI or url) them in your answer. Where you see researchers, supercentenarians, validation cases, or organizations mentioned, please list those in the answer as well. You are writing for a highly technical audience interested in gerontology, longevity research, supercentenarian validation, and demographic studies of extreme age. Focus on mechanistic basis of action, the underlying causation of aging, and speculation and ideas for how to use genetic engineering or other techniques to counteract the effects of aging or otherwise prevent aging, or for the purposes of rejuvenation.
+If the archives do not contain the answer, say so. Your job is to extract the most relevant matching results and formulate it into a markdown-formatted document for readability."""
+
+GRG_SEARCH_QUERY_PROMPT = """You are a search query generator for a semantic search system over the Gerontology Research Group (GRG) mailing list archives, which contain discussions about supercentenarians, longevity research, age validation, and demographic studies of extreme human lifespan.
+Based on the user's request below, generate an effective search query.
+The query should be a concise list of key terms, concepts, or phrases that would help retrieve relevant messages.
+Return ONLY the search query text, nothing else.
+
+User request: {prompt_fragment}
+
+Search query:"""
+
+
 def build_rag_prompt(query: str, context: str, prompt_fragment: str = "", system_prompt: str = RAG_SYSTEM_PROMPT) -> str:
     """Build the full RAG prompt."""
     parts = [system_prompt, "\n\n"]

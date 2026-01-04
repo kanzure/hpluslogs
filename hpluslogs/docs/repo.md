@@ -209,6 +209,18 @@ def generate_search_query(prompt_fragment: str, model: str, for_mycollection: bo
 - **Commands**: `lesswrong-upload`, `lesswrong-query`
 - **Config file**: `data/lesswrong_collection.json`
 
+### orionsarm (encyclopedia)
+- **Source**: Orion's Arm Universe Project encyclopedia articles
+- **Raw data**: `data/raw-more/orionsarm/`
+- **Commands**: `orionsarm-collect`, `orionsarm-query`
+- **Config file**: `data/orionsarm_collection.json`
+
+### grg (mailing list)
+- **Source**: Gerontology Research Group mailing list archives (supercentenarian research, age validation)
+- **Raw data**: `data/raw-more/grg/`
+- **Commands**: `grg-collect`, `grg-query`
+- **Config file**: `data/grg_collection.json`
+
 ## Environment Variables
 
 - `OPENROUTER_API_KEY` - Required for embeddings and LLM calls
@@ -235,3 +247,7 @@ python -m hpluslogs.cli xai-upload
 # Query xAI Collections
 python -m hpluslogs.cli xai-query "What is CRISPR?"
 ```
+
+/add hpluslogs/cli.py hpluslogs/integrations/xai.py hpluslogs/services/xai_upload.py hpluslogs/docs/repo.md hpluslogs/docs/xai.txt
+
+
