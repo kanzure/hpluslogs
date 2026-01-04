@@ -1,0 +1,1800 @@
+https://github.com/xai-org/xai-sdk-python
+
+https://github.com/xai-org/xai-sdk-python/blob/main/examples/aio/collection.py
+
+```
+import asyncio
+import datetime
+
+import xai_sdk
+
+
+async def create_collection_example(client: xai_sdk.AsyncClient):
+    print("\n=== Create Collection Example ===")
+
+    collection = await client.collections.create(
+        name="research-papers",
+        model_name="grok-embedding-small",
+    )
+
+    print(f"Created collection: {collection.collection_name}")
+    print(f"Collection ID: {collection.collection_id}")
+    print(f"Model: {collection.index_configuration.model_name}")
+    print(f"Created at: {collection.created_at.ToDatetime()}")
+    return collection.collection_id
+
+
+async def create_collection_with_token_chunking(client: xai_sdk.AsyncClient):
+    print("\n=== Create Collection with Token-Based Chunking ===")
+
+    collection = await client.collections.create(
+        name="code-snippets",
+        chunk_configuration={
+            "tokens_configuration": {
+                "max_chunk_size_tokens": 500,
+                "chunk_overlap_tokens": 50,
+                "encoding_name": "cl100k_base",
+            },
+            "strip_whitespace": False,
+        },
+    )
+
+    print(f"Created collection: {collection.collection_name}")
+    print(f"Collection ID: {collection.collection_id}")
+    print(f"Collection Chunk Configuration: {collection.chunk_configuration}")
+    return collection.collection_id
+
+
+async def list_collections_example(client: xai_sdk.AsyncClient):
+    print("\n=== List Collections Example ===")
+
+    response = await client.collections.list(
+        limit=10,
+        order="asc",
+        sort_by="name",
+    )
+
+    print(f"Found {len(response.collections)} collections (sorted by name):")
+    for collection in response.collections:
+        print(f"  - {collection.collection_name} (ID: {collection.collection_id})")
+        print(f"    Documents: {collection.documents_count}")
+
+    if response.pagination_token:
+        print("\nPagination token available for next page")
+
+
+async def get_collection_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== Get Collection Metadata Example ===")
+
+    collection = await client.collections.get(collection_id)
+    print(f"Collection: {collection.collection_name}")
+    print(f"ID: {collection.collection_id}")
+    print(f"Documents: {collection.documents_count}")
+    print(f"Model: {collection.index_configuration.model_name}")
+    print(f"Created at: {collection.created_at.ToDatetime()}")
+    print(f"Chunk Configuration: {collection.chunk_configuration}")
+
+    if collection.field_definitions:
+        print("Field definitions:")
+        for field in collection.field_definitions:
+            print(f"  - {field.key}: required={field.required}, unique={field.unique}")
+
+
+async def update_collection_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== Update Collection Example ===")
+
+    updated = await client.collections.update(
+        collection_id,
+        name="research-papers-updated",
+        chunk_configuration={
+            "chars_configuration": {
+                "max_chunk_size_chars": 2000,
+                "chunk_overlap_chars": 200,
+            },
+            "strip_whitespace": True,
+        },
+    )
+
+    print(f"Updated collection: {updated.collection_name}")
+    print(f"New chunk size: {updated.chunk_configuration.chars_configuration.max_chunk_size_chars}")
+
+
+async def upload_document_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== Upload Document Example ===")
+
+    document_content = b"""Machine Learning Fundamentals
+
+Machine learning is a subset of artificial intelligence that focuses on building
+systems that can learn from data and improve their performance over time without
+being explicitly programmed."""
+
+    document = await client.collections.upload_document(
+        collection_id,
+        name="ml-fundamentals.txt",
+        data=document_content,
+    )
+
+    print(f"Uploaded document: {document.file_metadata.name}")
+    print(f"File ID: {document.file_metadata.file_id}")
+    print(f"Size: {document.file_metadata.size_bytes} bytes")
+    print(f"Status: {document.status}")
+    return document.file_metadata.file_id
+
+
+async def upload_document_with_wait_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== Upload Document with Wait for Indexing Example ===")
+
+    document_content = b"""Deep Learning Neural Networks
+
+Deep learning is a subset of machine learning that uses neural networks with
+multiple layers. These networks can learn hierarchical representations of data,
+making them particularly effective for tasks like image recognition and natural
+language processing."""
+
+    print("Uploading document and waiting for indexing to complete...")
+
+    document = await client.collections.upload_document(
+        collection_id,
+        name="deep-learning.txt",
+        data=document_content,
+        wait_for_indexing=True,
+        poll_interval=datetime.timedelta(seconds=1),
+        timeout=datetime.timedelta(seconds=60),
+    )
+
+    print(f"Document uploaded and indexed: {document.file_metadata.name}")
+    print(f"File ID: {document.file_metadata.file_id}")
+    print("✓ Document is ready to be searched immediately!")
+    return document.file_metadata.file_id
+
+
+async def add_existing_document_example(client: xai_sdk.AsyncClient, collection_id: str, file_id: str):
+    print("\n=== Add Existing Document Example ===")
+
+    await client.collections.add_existing_document(
+        collection_id,
+        file_id,
+    )
+
+    print(f"Added existing document (file_id: {file_id}) to collection")
+
+
+async def list_documents_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== List Documents Example ===")
+
+    response = await client.collections.list_documents(
+        collection_id,
+        limit=10,
+        order="desc",
+        sort_by="age",
+    )
+
+    print(f"Found {len(response.documents)} documents:")
+    for doc in response.documents:
+        print(f"  - {doc.file_metadata.name}")
+        print(f"    File ID: {doc.file_metadata.file_id}")
+        print(f"    Size: {doc.file_metadata.size_bytes} bytes")
+        print(f"    Status: {doc.status}")
+        if doc.fields:
+            print(f"    Fields: {dict(doc.fields)}")
+
+
+async def get_document_example(client: xai_sdk.AsyncClient, collection_id: str, file_id: str):
+    print("\n=== Get Document Metadata Example ===")
+
+    document = await client.collections.get_document(file_id, collection_id)
+    print(f"Document: {document.file_metadata.name}")
+    print(f"File ID: {document.file_metadata.file_id}")
+    print(f"Size: {document.file_metadata.size_bytes} bytes")
+    print(f"Content type: {document.file_metadata.content_type}")
+    print(f"Status: {document.status}")
+    print(f"Fields: {dict(document.fields)}")
+
+
+async def batch_get_documents_example(client: xai_sdk.AsyncClient, collection_id: str, file_ids: list[str]):
+    print("\n=== Batch Get Documents Example ===")
+
+    response = await client.collections.batch_get_documents(collection_id, file_ids)
+
+    print(f"Retrieved {len(response.documents)} documents:")
+    for doc in response.documents:
+        print(f"  - {doc.file_metadata.name} ({doc.file_metadata.file_id})")
+
+
+async def update_document_example(client: xai_sdk.AsyncClient, collection_id: str, file_id: str):
+    print("\n=== Update Document Example ===")
+
+    new_content = b"Updated content for the document with additional information."
+
+    updated = await client.collections.update_document(
+        collection_id,
+        file_id,
+        name="ml-fundamentals-updated.txt",
+        data=new_content,
+        content_type="text/plain",
+    )
+
+    print(f"Updated document: {updated.file_metadata.name}")
+    print(f"New size: {updated.file_metadata.size_bytes} bytes")
+
+
+async def search_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== Hybrid Search Example ===")
+
+    results = await client.collections.search(
+        query="What is machine learning?",
+        collection_ids=[collection_id],
+        limit=5,
+        instructions="Return concise, user-friendly explanations focused on core concepts.",
+        retrieval_mode="hybrid",
+    )
+
+    print(f"Found {len(results.matches)} matches:")
+    for i, match in enumerate(results.matches, 1):
+        print(f"\n  Match {i}:")
+        print(f"    File ID: {match.file_id}")
+        print(f"    Score: {match.score:.4f}")
+        print(f"    Chunk: {match.chunk_content[:100]}...")
+
+
+async def reindex_document_example(client: xai_sdk.AsyncClient, collection_id: str, file_id: str):
+    print("\n=== Reindex Document Example ===")
+
+    await client.collections.reindex_document(collection_id, file_id)
+    print(f"Reindexed document (file_id: {file_id})")
+
+
+async def remove_document_example(client: xai_sdk.AsyncClient, collection_id: str, file_id: str):
+    print("\n=== Remove Document Example ===")
+
+    await client.collections.remove_document(collection_id, file_id)
+    print(f"Removed document (file_id: {file_id}) from collection")
+
+
+async def delete_collection_example(client: xai_sdk.AsyncClient, collection_id: str):
+    print("\n=== Delete Collection Example ===")
+
+    await client.collections.delete(collection_id)
+    print(f"Deleted collection (ID: {collection_id})")
+
+
+async def run_examples():
+    async with xai_sdk.AsyncClient() as client:
+        # Create collections
+        collection_id = await create_collection_example(client)
+        collection_id_2 = await create_collection_with_token_chunking(client)
+
+        # List collections
+        await list_collections_example(client)
+
+        # Get collection metadata
+        await get_collection_example(client, collection_id)
+
+        # Update collection
+        await update_collection_example(client, collection_id)
+
+        # Upload a document
+        file_id = await upload_document_example(client, collection_id)
+
+        # Upload a document with wait for indexing
+        file_id_wait = await upload_document_with_wait_example(client, collection_id)
+
+        # Upload another document for batch operations
+        file_id_2 = await upload_document_example(client, collection_id)
+
+        # Add an existing document to another collection
+        await add_existing_document_example(client, collection_id_2, file_id)
+
+        # List documents
+        await list_documents_example(client, collection_id)
+
+        # Get document metadata
+        await get_document_example(client, collection_id, file_id)
+
+        # Batch get documents
+        await batch_get_documents_example(client, collection_id, [file_id, file_id_2])
+
+        # Update document
+        await update_document_example(client, collection_id, file_id)
+
+        # Search documents
+        await search_example(client, collection_id)
+
+        # Reindex document (useful after updating collection configuration)
+        await reindex_document_example(client, collection_id, file_id)
+
+        # Remove documents from collection
+        await remove_document_example(client, collection_id, file_id)
+        await remove_document_example(client, collection_id, file_id_2)
+        await remove_document_example(client, collection_id, file_id_wait)
+
+        # Delete collections (cleanup)
+        await delete_collection_example(client, collection_id)
+        await delete_collection_example(client, collection_id_2)
+
+        print("\n=== All examples completed successfully! ===")
+
+
+def main() -> None:
+    asyncio.run(run_examples())
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```
+import asyncio
+
+import httpx
+
+from xai_sdk import AsyncClient
+from xai_sdk.chat import user
+from xai_sdk.tools import collections_search
+
+TESLA_10_Q_PDF_URL = "https://ir.tesla.com/_flysystem/s3/sec/000162828025045968/tsla-20250930-gen.pdf"
+TESLA_10_K_PDF_URL = "https://ir.tesla.com/_flysystem/s3/sec/000162828025003063/tsla-20241231-gen.pdf"
+
+
+async def agentic_collections_search(client: AsyncClient, model: str) -> None:
+    response = await client.collections.create("tesla-sec-filings")
+    print(f"Created collection: {response.collection_id}")
+
+    async def upload_document(url: str, name: str, collection_id: str) -> None:
+        async with httpx.AsyncClient() as http_client:
+            pdf_response = await http_client.get(url, timeout=30.0)
+            pdf_content = pdf_response.content
+
+        print(f"Uploading {name} document to collection")
+        await client.collections.upload_document(
+            collection_id=collection_id,
+            name=name,
+            data=pdf_content,
+            wait_for_indexing=True,
+        )
+        print(f"Uploaded {name} document to collection")
+
+    await asyncio.gather(
+        upload_document(TESLA_10_Q_PDF_URL, "tesla-10-Q-2024.pdf", response.collection_id),
+        upload_document(TESLA_10_K_PDF_URL, "tesla-10-K-2024.pdf", response.collection_id),
+    )
+
+    chat = client.chat.create(
+        model=model,
+        tools=[
+            collections_search(
+                collection_ids=[
+                    response.collection_id,
+                ],
+            ),
+        ],
+    )
+
+    chat.append(
+        user(
+            "How many consumer vehicles did Tesla produce in total in 2024 and 2025? "
+            "Show your working and cite your sources."
+        )
+    )
+
+    is_thinking = True
+    async for response, chunk in chat.stream():
+        for tool_call in chunk.tool_calls:
+            print(f"\nCalling tool: {tool_call.function.name} with arguments: {tool_call.function.arguments}")
+        if response.usage.reasoning_tokens and is_thinking:
+            print(f"\rThinking... ({response.usage.reasoning_tokens} tokens)", end="", flush=True)
+        if chunk.content and is_thinking:
+            print("\n\nFinal Response:")
+            is_thinking = False
+        if chunk.content and not is_thinking:
+            print(chunk.content, end="", flush=True)
+        latest_response = response
+
+    print("\n\nCitations:")
+    print(latest_response.citations)
+    print("\n\nUsage:")
+    print(latest_response.usage)
+    print(latest_response.server_side_tool_usage)
+    print("\n\nTool Calls:")
+    print(latest_response.tool_calls)
+
+
+async def main() -> None:
+    client = AsyncClient()
+    await agentic_collections_search(client, model="grok-4-fast")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Key Information
+Collections
+Collections offers xAI API users a robust set of tools and methods to seamlessly integrate their enterprise requirements and internal knowledge bases with the xAI API. This feature enables efficient management, retrieval, and utilization of documents to enhance AI-driven workflows and applications.
+
+There are two entities that users can create within the Collections service:
+
+file
+A 
+file
+ is a single entity of a user-uploaded file.
+collection
+A 
+collection
+ is a group of 
+files
+ linked together, with an embedding index for efficient retrieval of each 
+file
+.
+When you create a 
+collection
+ you have the option to automatically generate embeddings for any files uploaded to that 
+collection
+. You can then perform semantic search across files in multiple 
+collections
+.
+A single 
+file
+ can belong to multiple 
+collections
+ but must be part of at least one 
+collection
+.
+File storage and retrieval
+Visit the Collections tab on the xAI Console to create a new 
+collection
+. Once created, you can add 
+files
+ to the 
+collection
+. You can also add 
+files
+ without adding them to a 
+collection
+ using our Files API.
+
+All your 
+collections
+ and their associated 
+files
+ can be viewed in the Collections tab.
+
+Your 
+files
+ and their embedding index are securely encrypted and stored on our servers. The index enables efficient retrieval of 
+files
+ during a relevance search.
+
+Metadata Fields
+Collections support metadata fields — structured attributes you can attach to documents for enhanced retrieval and data integrity:
+
+Filtered retrieval — Narrow search results to documents matching specific criteria (e.g., 
+author="Sandra Kim"
+)
+Contextual embeddings — Inject metadata into chunks to improve retrieval accuracy (e.g., prepending document title to each chunk)
+Data integrity constraints — Enforce required fields or uniqueness across documents
+When creating a collection, define metadata fields with options like 
+required
+, 
+unique
+, and 
+inject_into_chunk
+ to control how metadata is validated and used during search.
+
+Learn more about metadata fields →
+
+Usage limits
+To be able to upload files and add to a collections you must have credits in your account.
+
+Maximum file size: 100MB
+Maximum number of files: 100,000 files uploaded globally.
+Maximum total size: 100GB
+
+Please contact us to increase any of these limits.
+
+This guide walks you through managing collections programmatically using the xAI SDK and REST API.
+
+Creating a Management Key
+To use the Collections API, you need to create a Management API Key with the 
+AddFileToCollection
+ permission. This permission is required for uploading documents to collections.
+
+Navigate to the Management Keys section in the xAI Console
+Click on Create Management Key
+Select the 
+AddFileToCollection
+ permission along with any other permissions you need
+If you need to perform operations other than uploading documents (such as creating, updating, or deleting collections), enable the corresponding permissions in the Collections Endpoint group
+Copy and securely store your Management API Key
+Create Management Key with AddFileToCollection permission
+Make sure to copy your Management API Key immediately after creation. You won't be able to see it again.
+
+Creating a collection
+
+Python
+Other
+
+import os
+from xai_sdk import Client
+client = Client(
+    api_key=os.getenv("XAI_API_KEY"),
+    management_api_key=os.getenv("XAI_MANAGEMENT_API_KEY"),
+    timeout=3600,
+)
+collection = client.collections.create(
+    name="SEC Filings",
+)
+print(collection)
+Listing collections
+
+Python
+Other
+
+# ... Create client
+collections = client.collections.list()
+print(collections)
+Viewing collection configuration
+
+Python
+Other
+
+# ... Create client
+collection = client.collections.get("collection_dbc087b1-6c99-493d-86c6-b401fee34a9d")
+print(collection)
+Updating collection configuration
+
+Python
+Other
+
+# ... Create client
+collection = client.collections.update(
+    "collection_dbc087b1-6c99-493d-86c6-b401fee34a9d",
+    name="SEC Filings (New)"
+)
+print(collection)
+Uploading documents
+Uploading a document to a collection is a two-step process:
+
+Upload the file to the xAI API
+Add the uploaded file to your collection
+
+Python
+Other
+
+# ... Create client
+with open("tesla-20241231.html", "rb") as file:
+    file_data = file.read()
+document = client.collections.upload_document(
+    collection_id="collection_dbc087b1-6c99-493d-86c6-b401fee34a9d",
+    name="tesla-20241231.html",
+    data=file_data,
+    content_type="text/html",
+)
+print(document)
+Uploading with metadata fields
+If your collection has metadata fields defined, include them using the 
+fields
+ parameter:
+
+
+Python
+Other
+
+# ... Create client
+with open("paper.pdf", "rb") as file:
+    file_data = file.read()
+document = client.collections.upload_document(
+    collection_id="collection_dbc087b1-6c99-493d-86c6-b401fee34a9d",
+    name="paper.pdf",
+    data=file_data,
+    content_type="application/pdf",
+    fields={
+        "author": "Sandra Kim",
+        "year": "2024",
+        "title": "Q3 Revenue Analysis"
+    },
+)
+print(document)
+Searching documents
+You can also search documents using the Responses API with the 
+file_search
+ tool. See the Collections Search Tool guide for more details.
+
+
+Python
+Other
+
+# ... Create client
+response = client.collections.search(
+    query="What were the key revenue drivers based on the SEC filings?",
+    collection_ids=["collection_dbc087b1-6c99-493d-86c6-b401fee34a9d"],
+)
+print(response)
+Search modes
+There are three search methods available:
+
+Keyword search
+Semantic search
+Hybrid search (combines both keyword and semantic methods)
+By default, the system uses hybrid search, which generally delivers the best and most comprehensive results.
+
+Mode	Description	Best for	Drawbacks
+Keyword	Searches for exact matches of specified words, phrases, or numbers	Precise terms (e.g., account numbers, dates, specific financial figures)	May miss contextually relevant content
+Semantic	Understands meaning and context to find conceptually related content	Discovering general ideas, topics, or intent even when exact words differ	Less precise for specific terms
+Hybrid	Combines keyword and semantic search for broader and more accurate results	Most real-world use cases	Slightly higher latency
+The hybrid approach balances precision and recall, making it the recommended default for the majority of queries.
+
+An example to set hybrid mode:
+
+Bash
+
+
+curl https://api.x.ai/v1/documents/search \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $XAI_API_KEY" \
+  -d '{
+      "query": "What were the key revenue drivers based on the SEC filings?",
+      "source": {
+          "collection_ids": [
+              "collection_dbc087b1-6c99-493d-86c6-b401fee34a9d"
+          ]
+      },
+      "retrieval_mode": {"type": "hybrid"}
+}'
+You can set 
+"retrieval_mode": {"type": "keyword"}
+ for keyword search and 
+"retrieval_mode": {"type": "semantic"}
+ for semantic search.
+
+Deleting a document
+
+Python
+Other
+
+# ... Create client
+client.collections.remove_document(
+    collection_id="collection_dbc087b1-6c99-493d-86c6-b401fee34a9d",
+    file_id="file_55a709d4-8edc-4f83-84d9-9f04fe49f832",
+)
+Deleting a collection
+
+Python
+Other
+
+# ... Create client
+client.collections.delete(collection_id="collection_dbc087b1-6c99-493d-86c6-b401fee34a9d")
+
+Metadata Fields
+Metadata fields allow you to attach structured attributes to documents in a collection. These fields enable:
+
+Filtered retrieval — Narrow search results to documents matching specific criteria (e.g., 
+author="Sandra Kim"
+)
+Contextual embeddings — Inject metadata into chunks to improve retrieval accuracy (e.g., prepending document title to each chunk)
+Data integrity constraints — Enforce required fields or uniqueness across documents
+Creating a Collection with Metadata Fields
+Define metadata fields using 
+field_definitions
+ when creating a collection:
+
+Bash
+
+
+curl -X POST "https://management-api.x.ai/v1/collections" \
+  -H "Authorization: Bearer $XAI_MANAGEMENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "collection_name": "research_papers",
+    "field_definitions": [
+      { "key": "author", "required": true },
+      { "key": "year", "required": true, "unique": true },
+      { "key": "title", "inject_into_chunk": true }
+    ]
+  }'
+Field Definition Options
+Option	Description
+required
+Document uploads must include this field. Defaults to 
+false
+.
+unique
+Only one document in the collection can have a given value for this field. Defaults to 
+false
+.
+inject_into_chunk
+Prepends this field's value to every embedding chunk, improving retrieval by providing context. Defaults to 
+false
+.
+Uploading Documents with Metadata
+Include metadata as a JSON object in the 
+fields
+ parameter:
+
+Bash
+
+
+curl -X POST "https://management-api.x.ai/v1/collections/{collection_id}/documents" \
+  -H "Authorization: Bearer $XAI_MANAGEMENT_API_KEY" \
+  -F "name=paper.pdf" \
+  -F "data=@paper.pdf" \
+  -F "content_type=application/pdf" \
+  -F 'fields={"author": "Sandra Kim", "year": "2024", "title": "Q3 Revenue Analysis"}'
+Filtering Documents in Search
+Use the 
+filter
+ parameter to restrict search results based on metadata values. The filter uses AIP-160 syntax:
+
+Bash
+
+
+curl -X POST "https://api.x.ai/v1/documents/search" \
+  -H "Authorization: Bearer $XAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "revenue growth",
+    "source": { "collection_ids": ["collection_xxx"] },
+    "filter": "author=\"Sandra Kim\" AND year>=2020"
+  }'
+Supported Filter Operators
+Operator	Example	Description
+=
+author="Jane"
+Equals
+!=
+status!="draft"
+Not equals
+<
+, 
+>
+, 
+<=
+, 
+>=
+year>=2020
+Numeric/lexical comparison
+AND
+a="x" AND b="y"
+Both conditions must match
+OR
+a="x" OR a="y"
+Either condition matches
+OR
+ has higher precedence than 
+AND
+. Use parentheses for clarity: 
+a="x" AND (b="y" OR b="z")
+.
+
+Wildcard matching (e.g., 
+author="E*"
+) is not supported. All string comparisons are exact matches.
+
+Filtering on fields that don't exist in your documents returns no results. Double-check that field names match your collection's 
+field_definitions
+.
+
+AIP-160 Filter String Examples
+Basic Examples
+Bash
+
+
+# Equality (double or single quotes for strings with spaces)
+author="Sandra Kim"
+author='Sandra Kim'
+# Equality (no quotes needed for simple values)
+year=2024
+status=active
+# Not equal
+status!="archived"
+status!='archived'
+Comparison Operators
+Bash
+
+
+# Numeric comparisons
+year>=2020
+year>2019
+score<=0.95
+price<100
+# Combined comparisons (range)
+year>=2020 AND year<=2024
+Logical Operators
+Bash
+
+
+# AND - both conditions must match
+author="Sandra Kim" AND year=2024
+# OR - either condition matches
+status="pending" OR status="in_progress"
+# Combined (OR has higher precedence than AND)
+department="Engineering" AND status="active" OR status="pending"
+# Use parentheses for clarity
+department="Engineering" AND (status="active" OR status="pending")
+Complex Examples
+Bash
+
+
+# Multiple conditions
+author="Sandra Kim" AND year>=2020 AND status!="draft"
+# Nested logic with parentheses
+(author="Sandra Kim" OR author="John Doe") AND year>=2020
+# Multiple fields with mixed operators
+category="finance" AND (year=2023 OR year=2024) AND status!="archived"
+Quick Reference
+Use Case	Filter String
+Exact match	
+author="Sandra Kim"
+Numeric comparison	
+year>=2020
+Not equal	
+status!="archived"
+Multiple conditions	
+author="Sandra Kim" AND year=2024
+Either condition	
+status="pending" OR status="draft"
+Grouped logic	
+(status="active" OR status="pending") AND year>=2020
+Complex filter	
+category="finance" AND year>=2020 AND status!="archived"
+
+Collection Management
+The base URL for 
+collection
+ management is shared with Management API at 
+https://management-api.x.ai/
+. You have to authenticate using xAI Management API Key with the header 
+Authorization: Bearer <your xAI Management API key>
+.
+
+For more details on provisioning xAI Management API key and using Management API, you can visit
+
+Using Management API
+
+Create a collection
+/v1/collections
+
+Create a collection.
+
+Request Body
+Expand All
+Search parameters...
+collection_name
+
+string
+
+required
+
+Name to use for the new collection.
+
+Show optional fields
+Response Body
+Expand All
+Search parameters...
+collection_id
+
+string
+
+UUIDv4 that represents an ID of the collection.
+
+collection_name
+
+string
+
+Name of the collection.
+
+created_at
+
+string
+
+The Unix timestamp for when the document was created.
+
+index_configuration
+
+object
+
+
+chunk_configuration
+
+object
+
+
+documents_count
+
+integer
+
+How many files the collection contains.
+
+field_definitions
+
+array
+
+
+Field definitions for documents in this collection. Defines what fields documents can have and their constraints.
+
+collection_description
+
+string
+
+Optional description of the collection.
+
+Example
+Definition
+POST
+
+/v1/collections
+
+JSON
+
+
+{
+  "collection_name": "SEC Filings",
+  "index_configuration": {
+    "model_name": "grok-embedding-small"
+  },
+  "chunk_configuration": {
+    "tokens_configuration": {
+      "max_chunk_size_tokens": 1024,
+      "chunk_overlap_tokens": 200,
+      "encoding_name": "o200k_base"
+    },
+    "strip_whitespace": true
+  },
+  "collection_description": "Filings from the SEC for financial analysis"
+}
+200
+
+Response
+
+JSON
+
+
+{
+  "collection_id": "collection_80100614-300c-4609-959b-a138fa90f542",
+  "collection_name": "SEC Filings",
+  "created_at": "2025-09-16T18:36:09.790629Z",
+  "index_configuration": {
+    "model_name": "grok-embedding-small"
+  },
+  "chunk_configuration": {
+    "tokens_configuration": {
+      "max_chunk_size_tokens": 1024,
+      "chunk_overlap_tokens": 200,
+      "encoding_name": "o200k_base"
+    },
+    "strip_whitespace": true,
+    "inject_name_into_chunks": false
+  },
+  "documents_count": 0,
+  "collection_description": "Filings from the SEC for financial analysis"
+}
+200
+List all collections
+/v1/collections
+
+List all the collections a team has.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team that owns the collections being listed. If not provided, the team ID will be derived from your request credentials.
+
+limit
+
+integer
+
+A limit on the number of objects to be returned. Max 100 items per request. If not provided, set the default to 100 items.
+
+order
+
+string
+
+The ordering to sort the returned collections. If not provided, the default order is Descending.
+
+sort_by
+
+string
+
+The parameter that the collections will be sorted by. If not provided, the default is to sort by `collection_name`.
+
+pagination_token
+
+string
+
+Optional token to retrieve the next page. Provided by `pagination_token` in a previous `ListCollectionsResponse`.
+
+filter
+
+string
+
+Filter expression to narrow down results. Supports filtering on: collection_id, collection_name (partial string matching), created_at, documents_count Examples: - 'collection_id = "collection_123"' - 'collection_name:"SEC" AND documents_count:>10' - 'collection_name = "report"' (partial match) - 'created_at:>2025-01-01T00:00:00Z'
+
+Response Body
+Expand All
+Search parameters...
+collections
+
+array
+
+
+List of collections.
+
+pagination_token
+
+string
+
+Token to be sent in the next 
+ListCollectionsRequest
+'s 
+pagination_token
+ for retrieving the next page.
+
+Example
+Definition
+GET
+
+/v1/collections
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{
+  "collections": [
+    {
+      "collection_id": "collection_80100614-300c-4609-959b-a138fa90f542",
+      "collection_name": "SEC Filings",
+      "created_at": "2025-09-16T18:36:09.790629Z",
+      "index_configuration": {
+        "model_name": "grok-embedding-small"
+      },
+      "chunk_configuration": {
+        "tokens_configuration": {
+          "max_chunk_size_tokens": 1024,
+          "chunk_overlap_tokens": 200,
+          "encoding_name": "o200k_base"
+        },
+        "strip_whitespace": true,
+        "inject_name_into_chunks": false
+      },
+      "documents_count": 0,
+      "collection_type": "text",
+      "collection_description": "Filings from the SEC for financial analysis"
+    }
+  ]
+}
+200
+Get metadata of a collection
+/v1/collections/{collection_id}
+
+Get a collection's metadata.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection to request.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team that owns the collection. If not provided, the team ID will be derived from your request credentials.
+
+Response Body
+Expand All
+Search parameters...
+collection_id
+
+string
+
+UUIDv4 that represents an ID of the collection.
+
+collection_name
+
+string
+
+Name of the collection.
+
+created_at
+
+string
+
+The Unix timestamp for when the document was created.
+
+index_configuration
+
+object
+
+
+chunk_configuration
+
+object
+
+
+documents_count
+
+integer
+
+How many files the collection contains.
+
+field_definitions
+
+array
+
+
+Field definitions for documents in this collection. Defines what fields documents can have and their constraints.
+
+collection_description
+
+string
+
+Optional description of the collection.
+
+Example
+Definition
+GET
+
+/v1/collections/{collection_id}
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{
+  "collection_id": "collection_80100614-300c-4609-959b-a138fa90f542",
+  "collection_name": "SEC Filings",
+  "created_at": "2025-09-16T18:36:09.790629Z",
+  "index_configuration": {
+    "model_name": "grok-embedding-small"
+  },
+  "chunk_configuration": {
+    "tokens_configuration": {
+      "max_chunk_size_tokens": 1024,
+      "chunk_overlap_tokens": 200,
+      "encoding_name": "o200k_base"
+    },
+    "strip_whitespace": true,
+    "inject_name_into_chunks": false
+  },
+  "documents_count": 0,
+  "collection_description": "Filings from the SEC for financial analysis"
+}
+200
+Delete a collection
+/v1/collections/{collection_id}
+
+Delete a specific collection.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection to delete.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team that owns the collection. If not provided, the team ID will be derived from your request credentials.
+
+Example
+Definition
+DELETE
+
+/v1/collections/{collection_id}
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{}
+200
+Update a collection's configuration
+/v1/collections/{collection_id}
+
+Update collection's config.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection to update.
+
+Request Body
+Expand All
+Search parameters...
+Show optional fields
+Response Body
+Expand All
+Search parameters...
+collection_id
+
+string
+
+UUIDv4 that represents an ID of the collection.
+
+collection_name
+
+string
+
+Name of the collection.
+
+created_at
+
+string
+
+The Unix timestamp for when the document was created.
+
+index_configuration
+
+object
+
+
+chunk_configuration
+
+object
+
+
+documents_count
+
+integer
+
+How many files the collection contains.
+
+field_definitions
+
+array
+
+
+Field definitions for documents in this collection. Defines what fields documents can have and their constraints.
+
+collection_description
+
+string
+
+Optional description of the collection.
+
+Example
+Definition
+PUT
+
+/v1/collections/{collection_id}
+
+JSON
+
+
+{
+  "collectionName": "SEC Filings (New)",
+  "chunkConfiguration": {
+    "tokensConfiguration": {
+      "maxChunkSizeTokens": 1024,
+      "chunkOverlapTokens": 200,
+      "encodingName": "o200k_base"
+    },
+    "stripWhitespace": true,
+    "injectNameIntoChunks": false
+  },
+  "collectionDescription": "Updated description of the collection"
+}
+200
+
+Response
+
+JSON
+
+
+{
+  "collection_id": "collection_80100614-300c-4609-959b-a138fa90f542",
+  "collection_name": "SEC Filings",
+  "created_at": "2025-09-16T18:36:09.790629Z",
+  "index_configuration": {
+    "model_name": "grok-embedding-small"
+  },
+  "chunk_configuration": {
+    "tokens_configuration": {
+      "max_chunk_size_tokens": 1024,
+      "chunk_overlap_tokens": 200,
+      "encoding_name": "o200k_base"
+    },
+    "strip_whitespace": true,
+    "inject_name_into_chunks": false
+  },
+  "documents_count": 0,
+  "collection_description": "Filings from the SEC for financial analysis"
+}
+200
+Add existing document to a collection
+/v1/collections/{collection_id}/documents/{file_id}
+
+Add a document to collection.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The id of the collection this document will be added to.
+
+file_id
+
+string
+
+required
+
+The ID of the document to use for this request.
+
+Request Body
+Expand All
+Search parameters...
+Show optional fields
+Example
+Definition
+POST
+
+/v1/collections/{collection_id}/documents/{file_id}
+
+JSON
+
+
+{
+  "fields": {
+    "type": "10-Q"
+  }
+}
+200
+
+Response
+
+JSON
+
+
+{}
+200
+List documents in a collection
+/v1/collections/{collection_id}/documents
+
+List documents in a collection.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection to list documents from.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team owning the documents. If not provided, the team ID will be derived from your request credentials.
+
+limit
+
+integer
+
+A limit on the number of objects to be returned. Max 100 items per request. If not provided, set the default to 100 items.
+
+order
+
+string
+
+The ordering to sort the returned documents. If not provided, the default order is Descending.
+
+sort_by
+
+string
+
+The parameter that the documents will be sorted by. If not provided, the default is to sort by `name`.
+
+pagination_token
+
+string
+
+Optional token to retrieve the next page. Provided by `pagination_token` in a previous `ListDocumentsResponse`.
+
+name
+
+string
+
+The name of the documents to get. DEPRECATED: Use filter field instead with "name:value"
+
+filter
+
+string
+
+Filter expression to narrow down results. Supports filtering on file metadata (name, content_type, size_bytes, created_at) and document fields (status, fields.{key}) Examples: - 'status:DOCUMENT_STATUS_PROCESSED' - 'name:"quarterly" AND status:!DOCUMENT_STATUS_FAILED' - 'fields.isbn:"978-1-234567-89-0"' - 'size_bytes:>5000000 AND content_type:application/pdf'
+
+Response Body
+Expand All
+Search parameters...
+documents
+
+array
+
+
+List of documents.
+
+pagination_token
+
+string
+
+Token to be sent in the next 
+ListDocumentsRequest
+'s 
+pagination_token
+ for retrieving the next page.
+
+Example
+Definition
+GET
+
+/v1/collections/{collection_id}/documents
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{
+  "documents": [
+    {
+      "file_metadata": {
+        "file_id": "file_94847856-a56f-4b1e-82dd-7fe0b3af43d9",
+        "name": "tsla-20250630.txt",
+        "size_bytes": "119237",
+        "content_type": "text/plain",
+        "created_at": "2025-09-16T19:06:53.472088Z",
+        "expires_at": null,
+        "hash": "a15b2225695f242af60e5d99a7455b0a2e371dac88283401ebc013dba1dfbc84"
+      },
+      "fields": {
+        "type": "10-Q"
+      },
+      "status": "DOCUMENT_STATUS_PROCESSED",
+      "error_message": ""
+    }
+  ]
+}
+200
+Retrieve document metadata
+/v1/collections/{collection_id}/documents/{file_id}
+
+Retrieve document metadata in a collection.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection this document belongs to.
+
+file_id
+
+string
+
+required
+
+The ID of the document to use for this request.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team the document belongs to. If not provided, the team ID will be derived from your request credentials.
+
+Response Body
+Expand All
+Search parameters...
+file_metadata
+
+object
+
+
+Metadata of an uploaded file.
+
+Document-level fields as defined by the collection's field_definitions. These fields are validated against the collection's field definitions: - Required fields must be present - Unique fields must be unique within the collection - All fields are validated at upload/update time
+
+object
+
+Status of a document
+
+"DOCUMENT_STATUS_UNKNOWN" | "DOCUMENT_STATUS_PROCESSING" | "DOCUMENT_STATUS_PROCESSED" | "DOCUMENT_STATUS_FAILED"
+
+default: DOCUMENT_STATUS_UNKNOWN
+
+error_message
+
+string
+
+Any error that occurred while processing.
+
+last_indexed_at
+
+string
+
+Timestamp of when this document was last indexed. Empty if it hasn't been.
+
+Example
+Definition
+GET
+
+/v1/collections/{collection_id}/documents/{file_id}
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{
+  "file_metadata": {
+    "file_id": "file_94847856-a56f-4b1e-82dd-7fe0b3af43d9",
+    "name": "tsla-20250630.txt",
+    "size_bytes": "119237",
+    "content_type": "text/plain",
+    "created_at": "2025-09-16T19:06:53.472088Z",
+    "expires_at": null,
+    "hash": "a15b2225695f242af60e5d99a7455b0a2e371dac88283401ebc013dba1dfbc84"
+  },
+  "fields": {
+    "type": "10-Q"
+  },
+  "status": "DOCUMENT_STATUS_PROCESSED",
+  "error_message": ""
+}
+200
+Regenerate indices for given document
+/v1/collections/{collection_id}/documents/{file_id}
+
+Regenerate indices for the given document.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection that includes the document.
+
+file_id
+
+string
+
+required
+
+The ID of the file to update.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team that owns the document. If not provided, the team ID will be derived from your request credentials.
+
+Example
+Definition
+PATCH
+
+/v1/collections/{collection_id}/documents/{file_id}
+
+JSON
+
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{}
+200
+Remove document from a collection
+/v1/collections/{collection_id}/documents/{file_id}
+
+Remove document from collection.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection the document will be remove from.
+
+file_id
+
+string
+
+required
+
+The file ID of the document to use for this request.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team that owns the collection. If not provided, the team ID will be derived from your request credentials.
+
+Example
+Definition
+DELETE
+
+/v1/collections/{collection_id}/documents/{file_id}
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{}
+200
+Batch get document's metadata
+/v1/collections/{collection_id}/documents:batchGet
+
+Get documents metadata in a batch request.
+
+Path parameters
+collection_id
+
+string
+
+required
+
+The ID of the collection that includes the documents.
+
+Query parameters
+team_id
+
+string
+
+The ID of the team that owns the document. If `None`, the team ID will be derived from your request credentials.
+
+file_ids
+
+array
+
+required
+
+The IDs of the files to retrieve the document metadata from.
+
+Response Body
+Expand All
+Search parameters...
+documents
+
+array
+
+
+Documents' metadata requested.
+
+Example
+Definition
+GET
+
+/v1/collections/{collection_id}/documents:batchGet
+
+JSON
+
+No parameters.
+200
+
+Response
+
+JSON
+
+
+{
+  "documents": [
+    {
+      "file_metadata": {
+        "file_id": "file_94847856-a56f-4b1e-82dd-7fe0b3af43d9",
+        "name": "tsla-20250630.txt",
+        "size_bytes": "119237",
+        "content_type": "text/plain",
+        "created_at": "2025-09-16T19:06:53.472088Z",
+        "expires_at": null,
+        "hash": "a15b2225695f242af60e5d99a7455b0a2e371dac88283401ebc013dba1dfbc84"
+      },
+      "fields": {},
+      "status": "DOCUMENT_STATUS_PROCESSED",
+      "error
+...
+
+Search content in a collection
+/v1/documents/search
+
+Search for content related to the query within the given collections.
+
+Request Body
+Expand All
+Search parameters...
+query
+
+string
+
+required
+
+The query to search for which will be embedded using the same embedding model as the one used for the source to query.
+
+source
+
+object
+
+required
+
+
+The source to query.
+
+Show optional fields
+Response Body
+Expand All
+Search parameters...
+matches
+
+array
+
+
+The search matches.
+
+
+
+
