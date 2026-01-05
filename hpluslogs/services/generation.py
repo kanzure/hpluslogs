@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from hpluslogs.core.prompts import (
+    AAF_SEARCH_QUERY_PROMPT,
+    AAF_SYSTEM_PROMPT,
     FIGHTAGING_SEARCH_QUERY_PROMPT,
     FIGHTAGING_SYSTEM_PROMPT,
     GRG_SEARCH_QUERY_PROMPT,
@@ -26,12 +28,48 @@ def generate_answer(
     model: str = "openrouter/x-ai/grok-4-fast",
     prompt_fragment: str = "",
     system_prompt: str = RAG_SYSTEM_PROMPT,
+    system_in_user: bool = True,
+    context_override: str = None,
 ) -> str:
-    """Generate an answer using retrieved context."""
-    context = format_context(retrieved_chunks)
-    prompt = build_rag_prompt(query, context, prompt_fragment, system_prompt)
+    """Generate an answer using retrieved context.
+    
+    Args:
+        query: The search query.
+        retrieved_chunks: List of retrieved chunks with content and metadata.
+        model: The LLM model to use.
+        prompt_fragment: Additional user instructions.
+        system_prompt: The system prompt (or instructions to append if system_in_user=True).
+        system_in_user: If True, system_prompt is appended to user message instead of being a system message.
+        context_override: If provided, use this instead of formatting retrieved_chunks.
+    """
+    if context_override is not None:
+        context = context_override
+    else:
+        context = format_context(retrieved_chunks)
+    prompt = build_rag_prompt(query, context, prompt_fragment, system_prompt, system_in_user)
     answer = openrouter.complete(prompt, model)
     return f"Search query: {query}\n\n{answer}"
+
+
+def generate_answer_no_context(
+    query: str,
+    model: str = "openrouter/x-ai/grok-4-fast",
+    prompt_fragment: str = "",
+    system_prompt: str = RAG_SYSTEM_PROMPT,
+    system_in_user: bool = True,
+) -> str:
+    """Generate an answer without any RAG context (baseline LLM response).
+    
+    Args:
+        query: The search query.
+        model: The LLM model to use.
+        prompt_fragment: Additional user instructions.
+        system_prompt: The system prompt (or instructions to append if system_in_user=True).
+        system_in_user: If True, system_prompt is appended to user message instead of being a system message.
+    """
+    prompt = build_rag_prompt(query, "", prompt_fragment, system_prompt, system_in_user)
+    answer = openrouter.complete(prompt, model)
+    return answer
 
 
 def generate_search_query(
@@ -41,6 +79,7 @@ def generate_search_query(
     for_lesswrong: bool = False,
     for_orionsarm: bool = False,
     for_grg: bool = False,
+    for_aaf: bool = False,
 ) -> str:
     """Generate search terms from a user request."""
     if for_fightaging:
@@ -51,6 +90,8 @@ def generate_search_query(
         prompt = ORIONSARM_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
     elif for_grg:
         prompt = GRG_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
+    elif for_aaf:
+        prompt = AAF_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
     else:
         prompt = SEARCH_QUERY_GENERATION_PROMPT.format(prompt_fragment=prompt_fragment)
     return openrouter.complete(prompt, model).strip()
