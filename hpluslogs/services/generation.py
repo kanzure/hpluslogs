@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from litellm import completion as litellm_completion
+
 from hpluslogs.core.prompts import (
     AAF_SEARCH_QUERY_PROMPT,
     AAF_SYSTEM_PROMPT,
+    CONTEXT_CLEANING_PROMPT,
     FIGHTAGING_SEARCH_QUERY_PROMPT,
     FIGHTAGING_SYSTEM_PROMPT,
     GRG_SEARCH_QUERY_PROMPT,
@@ -95,6 +98,32 @@ def generate_search_query(
     else:
         prompt = SEARCH_QUERY_GENERATION_PROMPT.format(prompt_fragment=prompt_fragment)
     return openrouter.complete(prompt, model).strip()
+
+
+def clean_context(
+    context: str,
+    #model: str = "openrouter/openai/gpt-oss-120b",
+    model: str = "openrouter/x-ai/grok-4.1-fast",
+) -> str:
+    """Clean context by removing redundancy and formatting artifacts.
+    
+    Uses the specified model with Cerebras provider to clean up the context,
+    removing email signatures, duplicate quoted emails, formatting errors,
+    and other artifacts while preserving important information.
+    """
+    response = litellm_completion(
+        model=model,
+        messages=[
+            {"role": "user", "content": f"{context}\n\n{CONTEXT_CLEANING_PROMPT}"}
+        ],
+        #extra_body={
+        #    "provider": {
+        #        "only": ["Cerebras"],
+        #    }
+        #},
+    )
+    
+    return response.choices[0].message.content
 
 
 def format_context(chunks: List[Dict[str, Any]]) -> str:

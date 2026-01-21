@@ -53,10 +53,12 @@ def download_cmd(obj: dict, start_date: Optional[_dt.datetime], end_date: Option
 @click.option("--overlap", default=20, help="Token overlap between consecutive chunks.")
 @click.option("--enrich/--no-enrich", default=False,
               help="Call an LLM to enrich or summarise each chunk.")
+@click.option("--resume/--no-resume", default=True,
+              help="Skip files that already have corresponding .jsonl chunks (resume).")
 @click.pass_obj
-def preprocess_cmd(obj: dict, max_tokens: int, overlap: int, enrich: bool) -> None:
+def preprocess_cmd(obj: dict, max_tokens: int, overlap: int, enrich: bool, resume: bool) -> None:
     """Convert raw logs into JSONL files of overlapping message chunks."""
-    preprocess.run(obj["data_dir"], max_tokens, overlap, enrich)
+    preprocess.run(obj["data_dir"], max_tokens, overlap, enrich, resume)
 
 
 @cli.command("embed")
@@ -83,11 +85,13 @@ def embed_cmd(obj: dict, cost_limit: float, model: str, concurrency: int) -> Non
 @click.option("--remote-user", default="bryan", help="Remote SSH user for upload.")
 @click.option("--remote-host", default="gnusha.org", help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/hplusroadmap/", help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def query_cmd(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int, prompt_fragment: str,
               output_name: Optional[str], css_file: str, upload: bool, remote_user: str,
-              remote_host: str, remote_path: str, query: str) -> None:
+              remote_host: str, remote_path: str, cleanpass: bool, query: str) -> None:
     """Answer a user question by retrieving relevant IRC messages and calling an LLM."""
     data_dir: Path = obj["data_dir"]
     
@@ -103,6 +107,12 @@ def query_cmd(obj: dict, model: str, top_k: int, nollm: bool, contextlimit: int,
     # Retrieve context
     results = search.retrieve(data_dir, search_query, top_k, backend="chroma")
     context = generation.format_context(results)
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
     
     click.echo("\nContext: <context>" + context + "</context>\n\n")
     
@@ -197,12 +207,14 @@ def xai_upload_cmd(obj: dict, collection_name: str, chunk_size: int, chunk_overl
               help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/hplusroadmap/",
               help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def xai_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
                   date_filter: Optional[str], nollm: bool, prompt_fragment: str, output_name: Optional[str],
                   css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
-                  query: str) -> None:
+                  cleanpass: bool, query: str) -> None:
     """Query xAI Collections and generate an answer using Grok."""
     data_dir: Path = obj["data_dir"]
     xai_config_file = data_dir / "xai_collection.json"
@@ -238,6 +250,13 @@ def xai_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+    
     click.echo("\nContext: <context>" + context[:2000] + "...</context>\n\n")
 
     # Upload context file before LLM call
@@ -259,7 +278,7 @@ def xai_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
 
     # Generate answer
     click.echo("Asking the LLM...\n")
-    answer = generation.generate_answer(search_query, results, model, prompt_fragment, RAG_SYSTEM_PROMPT)
+    answer = generation.generate_answer(search_query, results, model, prompt_fragment, RAG_SYSTEM_PROMPT, context_override=context)
     click.echo("\n" + answer.strip())
 
     # Publish output
@@ -319,12 +338,14 @@ def fightaging_collect_cmd(obj: dict, collection_name: str, chunk_size: int, chu
               help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/fightaging/",
               help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def fightaging_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
                          source_filter: str, nollm: bool, prompt_fragment: str, output_name: Optional[str],
                          css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
-                         query: str) -> None:
+                         cleanpass: bool, query: str) -> None:
     """Query Fight Aging! collection and generate an answer using Grok."""
     data_dir: Path = obj["data_dir"]
     config_file = data_dir / "fightaging_collection.json"
@@ -365,6 +386,13 @@ def fightaging_query_cmd(obj: dict, collection_id: Optional[str], model: str, to
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+    
     click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
 
     # Upload context file before LLM call
@@ -386,7 +414,7 @@ def fightaging_query_cmd(obj: dict, collection_id: Optional[str], model: str, to
 
     # Generate answer
     click.echo("Asking the LLM...\n")
-    answer = generation.generate_answer(search_query, results, model, prompt_fragment, FIGHTAGING_SYSTEM_PROMPT)
+    answer = generation.generate_answer(search_query, results, model, prompt_fragment, FIGHTAGING_SYSTEM_PROMPT, context_override=context)
     click.echo("\n" + answer.strip())
 
     # Publish output
@@ -446,12 +474,14 @@ def lesswrong_upload_cmd(obj: dict, collection_name: str, chunk_size: int, chunk
               help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/lesswrong/",
               help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def lesswrong_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
                         date_filter: Optional[str], nollm: bool, prompt_fragment: str, output_name: Optional[str],
                         css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
-                        query: str) -> None:
+                        cleanpass: bool, query: str) -> None:
     """Query LessWrong IRC logs collection and generate an answer."""
     data_dir: Path = obj["data_dir"]
     config_file = data_dir / "lesswrong_collection.json"
@@ -487,6 +517,13 @@ def lesswrong_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+    
     click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
 
     # Upload context file before LLM call
@@ -508,7 +545,7 @@ def lesswrong_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
 
     # Generate answer
     click.echo("Asking the LLM...\n")
-    answer = generation.generate_answer(search_query, results, model, prompt_fragment, LESSWRONG_SYSTEM_PROMPT)
+    answer = generation.generate_answer(search_query, results, model, prompt_fragment, LESSWRONG_SYSTEM_PROMPT, context_override=context)
     click.echo("\n" + answer.strip())
 
     # Publish output
@@ -568,12 +605,14 @@ def grg_collect_cmd(obj: dict, collection_name: str, chunk_size: int, chunk_over
               help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/grg/",
               help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def grg_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
                   nollm: bool, two_pass: bool, prompt_fragment: str, output_name: Optional[str],
                   css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
-                  query: str) -> None:
+                  cleanpass: bool, query: str) -> None:
     """Query GRG (Gerontology Research Group) mailing list and generate an answer."""
     data_dir: Path = obj["data_dir"]
     config_file = data_dir / "grg_collection.json"
@@ -607,6 +646,13 @@ def grg_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+    
     #click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
     click.echo(f"\nContext: <context>{context}</context>\n\n")
 
@@ -705,12 +751,14 @@ def orionsarm_collect_cmd(obj: dict, collection_name: str, chunk_size: int, chun
               help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/orionsarm/",
               help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def orionsarm_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
                         nollm: bool, prompt_fragment: str, output_name: Optional[str],
                         css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
-                        query: str) -> None:
+                        cleanpass: bool, query: str) -> None:
     """Query Orion's Arm encyclopedia and generate an answer."""
     from hpluslogs.core.prompts import ORIONSARM_SYSTEM_PROMPT
 
@@ -746,6 +794,13 @@ def orionsarm_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+    
     #click.echo("\nContext preview: <context>" + context[:2000] + "...</context>\n\n")
     click.echo(f"\nContext: <context>{context}</context>\n\n")
 
@@ -768,7 +823,7 @@ def orionsarm_query_cmd(obj: dict, collection_id: Optional[str], model: str, top
 
     # Generate answer
     click.echo("Asking the LLM...\n")
-    answer = generation.generate_answer(search_query, results, model, prompt_fragment, ORIONSARM_SYSTEM_PROMPT)
+    answer = generation.generate_answer(search_query, results, model, prompt_fragment, ORIONSARM_SYSTEM_PROMPT, context_override=context)
     click.echo("\n" + answer.strip())
 
     # Publish output
@@ -826,12 +881,14 @@ def aaf_collect_cmd(obj: dict, collection_name: str, chunk_size: int, chunk_over
               help="Remote SSH host for upload.")
 @click.option("--remote-path", default="~/public_html/irc/chatgpt/aaf/",
               help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
 @click.argument("query", required=False, default="")
 @click.pass_obj
 def aaf_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
                   nollm: bool, prompt_fragment: str, output_name: Optional[str],
                   css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
-                  query: str) -> None:
+                  cleanpass: bool, query: str) -> None:
     """Query Anti-Aging Firewalls articles and generate an answer."""
     data_dir: Path = obj["data_dir"]
     config_file = data_dir / "aaf_collection.json"
@@ -865,6 +922,13 @@ def aaf_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
 
     context = generation.format_context(results)
     click.echo(f"\nRetrieved {len(results)} matches.")
+    
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+    
     click.echo(f"\nContext: <context>{context}</context>\n\n")
 
     # Upload context file before LLM call
@@ -886,7 +950,7 @@ def aaf_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
 
     # Generate answer
     click.echo("Asking the LLM...\n")
-    answer = generation.generate_answer(search_query, results, model, prompt_fragment, AAF_SYSTEM_PROMPT)
+    answer = generation.generate_answer(search_query, results, model, prompt_fragment, AAF_SYSTEM_PROMPT, context_override=context)
     click.echo("\n" + answer.strip())
 
     # Publish output
