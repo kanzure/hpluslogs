@@ -3,6 +3,6 @@ click
 requests
 tiktoken
 httpx==0.28.1
-litellm
+litellm==1.81.10
 
 chromadb==1.4.0
