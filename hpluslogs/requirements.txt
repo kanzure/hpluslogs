@@ -4,5 +4,11 @@ requests
 tiktoken
 httpx==0.28.1
 litellm==1.81.10
+lxml
 
 chromadb==1.4.0
+
+# Note: link-following in the summarization commands uses the Node `mdream`
+# package for HTML->markdown (see hpluslogs/package.json; install with
+# `npm install` in the hpluslogs/ directory). If mdream/Node is unavailable it
+# falls back to lxml-based HTML text extraction.

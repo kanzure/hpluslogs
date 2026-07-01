@@ -17,7 +17,7 @@ import click
 
 from hpluslogs.core.prompts import AAF_SYSTEM_PROMPT, FIGHTAGING_SYSTEM_PROMPT, GRG_SYSTEM_PROMPT, LESSWRONG_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT
 from hpluslogs.core.utils import ensure_directory, token_count
-from hpluslogs.services import download, embedding, generation, preprocess, publishing, search, xai_upload
+from hpluslogs.services import download, embedding, generation, preprocess, publishing, search, summarize, xai_upload
 
 
 ###############################################################################
@@ -37,14 +37,14 @@ def cli(ctx: click.Context, data_dir: str) -> None:
 
 @cli.command("download")
 @click.option("--start", "start_date", type=click.DateTime(formats=["%Y-%m-%d"]),
-              help="First date to download (YYYY-MM-DD). Defaults to today if omitted.")
+              help="First date to download (YYYY-MM-DD). If omitted with --end, reconcile missing logs through today.")
 @click.option("--end", "end_date", type=click.DateTime(formats=["%Y-%m-%d"]),
               help="Last date to download (YYYY-MM-DD). Defaults to start date if omitted.")
 @click.option("--resume/--no-resume", default=True,
               help="Skip files that already exist on disk (resume).")
 @click.pass_obj
 def download_cmd(obj: dict, start_date: Optional[_dt.datetime], end_date: Optional[_dt.datetime], resume: bool) -> None:
-    """Download raw IRC logs from gnusha.org for a date range."""
+    """Download raw IRC logs from gnusha.org."""
     download.run(obj["data_dir"], start_date, end_date, resume)
 
 
@@ -957,6 +957,138 @@ def aaf_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
     publishing.output(
         data_dir, answer, output_name, css_file, upload,
         remote_user, remote_host, remote_path, prefix="aaf_query"
+    )
+
+
+###############################################################################
+# Chat log summarization commands (daily / weekly / monthly)
+###############################################################################
+
+# Options shared by all three summarization commands.
+def _summary_options(func):
+    """Decorator bundling the common options for summarization commands."""
+    decorators = [
+        click.option("--model", default=summarize.DEFAULT_MODEL,
+                     help="LLM to use for summarization (via OpenRouter/litellm). Default: DeepSeek."),
+        click.option("--fetch-links/--no-fetch-links", default=True,
+                     help="Follow links posted in the logs to gather manuscript/article details."),
+        click.option("--max-links-daily", "max_links_daily", type=int, default=500,
+                     help="Maximum number of unique links to follow per day (daily limit)."),
+        click.option("--concurrency", type=int, default=summarize.DEFAULT_CONCURRENCY,
+                     help="Number of daily summaries to generate in parallel."),
+        click.option("--resume/--no-resume", default=True,
+                     help="Resume: skip summaries already written to disk (non-empty); "
+                          "only (re)generate missing or empty/corrupt ones. "
+                          "--no-resume regenerates everything from scratch."),
+        click.option("--max-link-chars", type=int, default=6000,
+                     help="Maximum characters of extracted text to keep per followed link."),
+        click.option("--css-file", default="wrap.css",
+                     help="CSS file to use with pandoc for HTML generation."),
+        click.option("--upload/--no-upload", default=True, help="Upload files to server via scp."),
+        click.option("--remote-user", default="bryan", help="Remote SSH user for upload."),
+        click.option("--remote-host", default="gnusha.org", help="Remote SSH host for upload."),
+        click.option("--remote-path", default=summarize.DEFAULT_REMOTE_PATH,
+                     help="Remote path for upload (default: chatsummaries/ directory)."),
+    ]
+    for dec in reversed(decorators):
+        func = dec(func)
+    return func
+
+
+@cli.command("summarize-day")
+@click.option("--date", "date", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Single day to summarize (YYYY-MM-DD). Overrides --start/--end.")
+@click.option("--start", "start_date", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="First day to summarize (YYYY-MM-DD). Defaults to today.")
+@click.option("--end", "end_date", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Last day to summarize (YYYY-MM-DD). Defaults to start.")
+@click.option("--force/--no-force", default=False,
+              help="Regenerate even if a daily summary already exists.")
+@_summary_options
+@click.pass_obj
+def summarize_day_cmd(obj: dict, date: Optional[_dt.datetime], start_date: Optional[_dt.datetime],
+                      end_date: Optional[_dt.datetime], force: bool, model: str, fetch_links: bool,
+                      max_links_daily: int, concurrency: int, resume: bool, max_link_chars: int,
+                      css_file: str, upload: bool, remote_user: str, remote_host: str,
+                      remote_path: str) -> None:
+    """Summarize one or more days of IRC logs, calling out posted manuscripts."""
+    if date is not None:
+        start = end = date.date()
+    else:
+        start = start_date.date() if start_date else _dt.date.today()
+        end = end_date.date() if end_date else start
+    force = force or not resume
+    summarize.summarize_days(
+        obj["data_dir"], start, end, concurrency=concurrency,
+        model=model, fetch_links=fetch_links, max_links=max_links_daily,
+        max_link_chars=max_link_chars, force=force, upload=upload, css_file=css_file,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+    )
+
+
+@cli.command("summarize-week")
+@click.option("--date", "date", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Any day within the target ISO week (Mon-Sun). Defaults to today.")
+@click.option("--auto/--no-auto", default=True,
+              help="Auto-generate any missing daily summaries for the week.")
+@click.option("--force/--no-force", default=False,
+              help="Regenerate the weekly summary even if it already exists.")
+@click.option("--force-daily/--no-force-daily", default=False,
+              help="Regenerate underlying daily summaries even if they exist.")
+@_summary_options
+@click.pass_obj
+def summarize_week_cmd(obj: dict, date: Optional[_dt.datetime], auto: bool, force: bool,
+                       force_daily: bool, model: str, fetch_links: bool, max_links_daily: int,
+                       concurrency: int, resume: bool, max_link_chars: int, css_file: str,
+                       upload: bool, remote_user: str, remote_host: str, remote_path: str) -> None:
+    """Consolidate a week's daily summaries into a weekly digest."""
+    any_day = date.date() if date else _dt.date.today()
+    if not resume:
+        force = force_daily = True
+    summarize.summarize_week(
+        obj["data_dir"], any_day, concurrency=concurrency,
+        model=model, auto=auto, fetch_links=fetch_links, max_links=max_links_daily,
+        max_link_chars=max_link_chars, force=force, force_daily=force_daily,
+        upload=upload, css_file=css_file, remote_user=remote_user,
+        remote_host=remote_host, remote_path=remote_path,
+    )
+
+
+@cli.command("summarize-month")
+@click.option("--month", "month", default=None,
+              help="Target month as YYYY-MM. Defaults to the current month.")
+@click.option("--auto/--no-auto", default=True,
+              help="Auto-generate any missing weekly (and daily) summaries for the month.")
+@click.option("--force/--no-force", default=False,
+              help="Regenerate the monthly summary even if it already exists.")
+@click.option("--force-weekly/--no-force-weekly", default=False,
+              help="Regenerate underlying weekly summaries even if they exist.")
+@click.option("--force-daily/--no-force-daily", default=False,
+              help="Regenerate underlying daily summaries even if they exist.")
+@_summary_options
+@click.pass_obj
+def summarize_month_cmd(obj: dict, month: Optional[str], auto: bool, force: bool,
+                        force_weekly: bool, force_daily: bool, model: str, fetch_links: bool,
+                        max_links_daily: int, concurrency: int, resume: bool, max_link_chars: int,
+                        css_file: str, upload: bool, remote_user: str, remote_host: str,
+                        remote_path: str) -> None:
+    """Consolidate a month's weekly summaries into a monthly digest."""
+    if month:
+        try:
+            year_i, month_i = (int(x) for x in month.split("-", 1))
+        except ValueError:
+            raise click.UsageError("--month must be formatted as YYYY-MM, e.g. 2026-04.")
+    else:
+        today = _dt.date.today()
+        year_i, month_i = today.year, today.month
+    if not resume:
+        force = force_weekly = force_daily = True
+    summarize.summarize_month(
+        obj["data_dir"], year_i, month_i, concurrency=concurrency,
+        model=model, auto=auto, fetch_links=fetch_links, max_links=max_links_daily,
+        max_link_chars=max_link_chars, force=force, force_weekly=force_weekly,
+        force_daily=force_daily, upload=upload, css_file=css_file,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
     )
 
 

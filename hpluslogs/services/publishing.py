@@ -36,20 +36,19 @@ def output(
         base_name = f"{prefix}-{timestamp}"
     
     md_file = outputs_dir / f"{base_name}.md"
-    
-    # Write content
+
+    # Write content and upload the markdown immediately (before HTML generation).
     md_file.write_text(content, encoding="utf-8")
-    
-    # Generate HTML
-    html_file = outputs_dir / f"{base_name}.html"
-    pandoc.generate_html(md_file, html_file, css_file)
-    
-    # Upload if requested
     if upload:
         scp.ensure_remote_directory(remote_user, remote_host, remote_path)
         scp.upload_file(md_file, remote_user, remote_host, remote_path, md_file.name)
+
+    # Generate HTML, then upload it.
+    html_file = outputs_dir / f"{base_name}.html"
+    pandoc.generate_html(md_file, html_file, css_file)
+    if upload:
         scp.upload_file(html_file, remote_user, remote_host, remote_path, html_file.name)
-    
+
     return md_file
 
 

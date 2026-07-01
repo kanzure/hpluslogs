@@ -58,13 +58,32 @@ def embed_single(text: str, model: str = "qwen/qwen3-embedding-8b") -> List[floa
     return resp.data[0].embedding
 
 
-def complete(prompt: str, model: str) -> str:
-    """Call LLM completion via litellm, return response text."""
+def complete(prompt: str, model: str, timeout: float = 600.0) -> str:
+    """Call LLM completion via litellm (through OpenRouter), return response text.
+
+    Since this always routes through OpenRouter (fixed base URL + OPENROUTER_API_KEY),
+    the model is normalized to carry the ``openrouter/`` prefix. This means callers
+    can pass either ``openrouter/google/gemini-3.5-flash`` or the bare
+    ``google/gemini-3.5-flash`` — without the prefix litellm would otherwise try to
+    reach Google's API directly and fail with a "Provider List" error.
+
+    ``timeout`` (seconds) caps how long we wait for the API so a hung connection
+    fails cleanly instead of blocking forever; the caller can then retry.
+    """
     import litellm
+    # Silence litellm's noisy "Provider List: ..." / "Give Feedback" stderr spam,
+    # which otherwise looks like a fatal error even when the call succeeds.
+    litellm.suppress_debug_info = True
+    litellm.set_verbose = False
+
+    if not model.startswith("openrouter/"):
+        model = "openrouter/" + model
+
     response = litellm.completion(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         api_key=os.environ.get("OPENROUTER_API_KEY"),
         base_url="https://openrouter.ai/api/v1",
+        timeout=timeout,
     )
     return response['choices'][0]['message']['content']
