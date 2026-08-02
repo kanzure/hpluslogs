@@ -33,7 +33,7 @@ from hpluslogs.core.prompts import (
     build_monthly_summary_prompt,
     build_weekly_summary_prompt,
 )
-from hpluslogs.core.utils import daterange, ensure_directory, token_count
+from hpluslogs.core.utils import daterange, ensure_directory, read_human_text, token_count
 from hpluslogs.integrations import gnusha, linkfetch, openrouter
 from hpluslogs.services import publishing
 
@@ -83,6 +83,12 @@ def _echo(msg: str = "") -> None:
     click.echo(_fmt(msg))
 
 
+def _echo_locked(msg: str = "") -> None:
+    """Thread-safe single-line echo for live progress from parallel workers."""
+    with _PRINT_LOCK:
+        _echo(msg)
+
+
 def _flush_lines(lines: List[str]) -> None:
     """Print a buffered block of already-formatted log lines atomically."""
     if not lines:
@@ -95,14 +101,16 @@ def _flush_lines(lines: List[str]) -> None:
 def _run_day_jobs(
     jobs: List[Tuple[_dt.date, Callable]],
     concurrency: int,
+    *,
+    buffer_output: bool = True,
 ) -> dict:
-    """Run per-day jobs, up to ``concurrency`` at a time. Returns {day: summary}.
+    """Run jobs, up to ``concurrency`` at a time. Returns {day: summary}.
 
     Each job is ``(day, run_fn)`` where ``run_fn(emit)`` generates the summary and
-    sends log lines to the ``emit`` callback. When run sequentially the emit is
-    ``click.echo`` (output streams live); when run in parallel each job buffers
-    its lines and they are flushed as an atomic block on completion, so the
-    interleaved output of concurrent days stays readable.
+    sends log lines to the ``emit`` callback. By default, parallel jobs buffer
+    their lines and flush them as an atomic block on completion, so interleaved
+    daily output stays readable. Set ``buffer_output=False`` for long-running
+    higher-level jobs where live progress is more useful than grouped logs.
     """
     results: dict = {}
     if not jobs:
@@ -114,6 +122,16 @@ def _run_day_jobs(
             summary = run_fn(_echo)
             if summary is not None:
                 results[day] = summary
+        return results
+
+    if not buffer_output:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            fut_map = {pool.submit(run_fn, _echo_locked): day for day, run_fn in jobs}
+            for fut in as_completed(fut_map):
+                day = fut_map[fut]
+                summary = fut.result()
+                if summary is not None:
+                    results[day] = summary
         return results
 
     def worker(run_fn: Callable):
@@ -242,7 +260,7 @@ def _usable(text: Optional[str]) -> bool:
 def _existing_if_usable(path: Path) -> Optional[str]:
     """Return the file's content only if it exists and is a usable summary."""
     if path.exists():
-        text = path.read_text(encoding="utf-8")
+        text = read_human_text(path)
         if _usable(text):
             return text
     return None
@@ -313,6 +331,56 @@ def month_weeks(year: int, month: int) -> List[_dt.date]:
     return mondays
 
 
+def _daily_summary_days(data_dir: Path) -> List[_dt.date]:
+    """Return dates with usable cached daily summaries."""
+    daily_dir = _summaries_dir(data_dir) / "daily"
+    if not daily_dir.exists():
+        return []
+    days: List[_dt.date] = []
+    for path in daily_dir.glob("*.md"):
+        try:
+            day = _dt.date.fromisoformat(path.stem)
+        except ValueError:
+            continue
+        if _existing_if_usable(path) is not None:
+            days.append(day)
+    return sorted(days)
+
+
+def _week_label_to_monday(label: str) -> Optional[_dt.date]:
+    """Parse an ISO week label like ``2026-W17`` into its Monday date."""
+    match = re.fullmatch(r"(\d{4})-W(\d{2})", label)
+    if not match:
+        return None
+    try:
+        return _dt.date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
+    except ValueError:
+        return None
+
+
+def _weekly_summary_mondays(data_dir: Path) -> List[_dt.date]:
+    """Return ISO-week Mondays with usable cached weekly summaries."""
+    weekly_dir = _summaries_dir(data_dir) / "weekly"
+    if not weekly_dir.exists():
+        return []
+    mondays: List[_dt.date] = []
+    for path in weekly_dir.glob("*.md"):
+        monday = _week_label_to_monday(path.stem)
+        if monday is not None and _existing_if_usable(path) is not None:
+            mondays.append(monday)
+    return sorted(set(mondays))
+
+
+def _months_overlapped_by_weeks(mondays: List[_dt.date]) -> List[Tuple[int, int]]:
+    """Return calendar months touched by the given ISO weeks."""
+    months = {
+        (day.year, day.month)
+        for monday in mondays
+        for day in week_days(monday)
+    }
+    return sorted(months)
+
+
 ###############################################################################
 # Raw log access
 ###############################################################################
@@ -327,7 +395,7 @@ def _read_log(data_dir: Path, day: _dt.date, emit: Callable = _echo) -> Optional
     raw_dir = data_dir / "raw"
     log_file = raw_dir / f"{day.isoformat()}.log"
     if log_file.exists():
-        return log_file.read_text(encoding="utf-8")
+        return read_human_text(log_file)
     try:
         text = gnusha.fetch_log(day)
     except Exception as exc:  # noqa: BLE001
@@ -501,7 +569,7 @@ def summarize_day(
     daily_file = _daily_path(data_dir, day)
 
     if daily_file.exists() and not force:
-        content = daily_file.read_text(encoding="utf-8")
+        content = read_human_text(daily_file)
         if _usable(content):
             emit(f"✓ Daily summary for {day} already done; reusing (use --force to regenerate).")
             emit(f"  Summary file: {daily_file}")
@@ -587,6 +655,66 @@ def summarize_days(
     _run_day_jobs(jobs, concurrency)
 
 
+def _raw_log_days(data_dir: Path) -> List[_dt.date]:
+    """Return all dates with local raw IRC logs available."""
+    raw_dir = data_dir / "raw"
+    if not raw_dir.exists():
+        return []
+
+    days: List[_dt.date] = []
+    for path in raw_dir.glob("*.log"):
+        try:
+            days.append(_dt.date.fromisoformat(path.stem))
+        except ValueError:
+            continue
+    return sorted(days)
+
+
+def summarize_missing_days(
+    data_dir: Path,
+    start: Optional[_dt.date] = None,
+    end: Optional[_dt.date] = None,
+    concurrency: int = DEFAULT_CONCURRENCY,
+    force: bool = False,
+    **kwargs,
+) -> None:
+    """Summarize all raw-log days that do not have a usable daily summary yet.
+
+    Discovery is based on local ``data_dir/raw/YYYY-MM-DD.log`` files. A daily
+    summary is considered done only when its canonical cached markdown exists and
+    passes the same usability threshold used by ``summarize_day`` resume logic.
+    With ``force=True``, every matching raw-log day is regenerated.
+    """
+    days = _raw_log_days(data_dir)
+    if start is not None:
+        days = [day for day in days if day >= start]
+    if end is not None:
+        days = [day for day in days if day <= end]
+
+    if not days:
+        raw_dir = data_dir / "raw"
+        _echo(f"No raw log files found in {raw_dir}. Run download first, or pass --data-dir.")
+        return
+
+    rebuild_count = sum(
+        1 for day in days
+        if force or _existing_if_usable(_daily_path(data_dir, day)) is None
+    )
+    reuse_count = len(days) - rebuild_count
+
+    workers = max(1, min(concurrency, len(days)))
+    action = "Regenerating" if force else "Summarizing missing"
+    bounds = f"{days[0]} … {days[-1]}" if len(days) > 1 else str(days[0])
+    _echo(f"=== {action} {rebuild_count} daily summaries ({bounds}; "
+          f"checking={len(days)}; concurrency={workers}; reusing={reuse_count}) ===")
+
+    jobs = [
+        (day, (lambda emit, d=day: summarize_day(data_dir, d, force=force, emit=emit, **kwargs)))
+        for day in days
+    ]
+    _run_day_jobs(jobs, concurrency, buffer_output=False)
+
+
 ###############################################################################
 # Weekly
 ###############################################################################
@@ -621,7 +749,7 @@ def _ensure_daily_summaries(
         f = _daily_path(data_dir, day)
         if not f.exists():
             return None
-        text = f.read_text(encoding="utf-8")
+        text = read_human_text(f)
         return text if len(text.strip()) >= MIN_SUMMARY_CHARS else None
 
     reuse: dict = {}
@@ -818,6 +946,84 @@ def _consolidate_week(
     return summary, True
 
 
+def summarize_weeks(
+    data_dir: Path,
+    start: Optional[_dt.date] = None,
+    end: Optional[_dt.date] = None,
+    model: str = DEFAULT_MODEL,
+    force: bool = False,
+    upload: bool = True,
+    css_file: str = "wrap.css",
+    remote_user: str = "bryan",
+    remote_host: str = "gnusha.org",
+    remote_path: str = DEFAULT_REMOTE_PATH,
+    publish: bool = True,
+    echo_summary: bool = True,
+    concurrency: int = DEFAULT_CONCURRENCY,
+) -> None:
+    """Summarize weeks discovered from existing usable daily summaries.
+
+    Discovery is based on ``data_dir/summaries/daily/YYYY-MM-DD.md`` files. This
+    intentionally does not generate missing dailies; use ``summarize-days`` for
+    that. Resume skips weekly summaries that are present and newer than all
+    available daily summaries in that week unless ``force`` is set.
+    """
+    days = _daily_summary_days(data_dir)
+    if start is not None:
+        days = [day for day in days if day >= start]
+    if end is not None:
+        days = [day for day in days if day <= end]
+
+    if not days:
+        daily_dir = _summaries_dir(data_dir) / "daily"
+        _echo(f"No usable daily summaries found in {daily_dir}.")
+        return
+
+    daily_by_week: dict = {}
+    for day in days:
+        daily_by_week.setdefault(monday_of(day), []).append(day)
+
+    candidates = [monday for monday, _wk_days in sorted(daily_by_week.items())]
+    rebuild_count = 0
+    for monday, wk_days in sorted(daily_by_week.items()):
+        weekly_file = _weekly_path(data_dir, monday)
+        existing = _existing_if_usable(weekly_file)
+        stale = _is_stale(weekly_file, [_daily_path(data_dir, d) for d in wk_days])
+        if force or existing is None or stale:
+            rebuild_count += 1
+
+    reuse_count = len(candidates) - rebuild_count
+    workers = max(1, min(concurrency, len(candidates)))
+    action = "Regenerating" if force else "Summarizing missing/stale"
+    _echo(f"=== {action} {rebuild_count} weekly summaries from existing daily "
+          f"summaries (checking={len(candidates)}; concurrency={workers}; "
+          f"reusing={reuse_count}) ===")
+    _echo("  Launching weekly jobs: " + ", ".join(week_label(m) for m in candidates))
+
+    def _week_job(monday: _dt.date) -> Callable:
+        def run(emit: Callable):
+            wk_days = daily_by_week[monday]
+            daily = [
+                (day, _existing_if_usable(_daily_path(data_dir, day)) or "")
+                for day in wk_days
+            ]
+            daily = [(day, text) for day, text in daily if text]
+            emit(f"=== Weekly summary: {week_label(monday)} "
+                 f"({wk_days[0]} … {wk_days[-1]}, {len(daily)} daily summaries) ===")
+            return _consolidate_week(
+                data_dir, monday, daily, model=model, force=force, upload=upload,
+                css_file=css_file, remote_user=remote_user, remote_host=remote_host,
+                remote_path=remote_path, publish=publish, echo_summary=echo_summary, emit=emit,
+            )
+        return run
+
+    _run_day_jobs(
+        [(monday, _week_job(monday)) for monday in candidates],
+        concurrency,
+        buffer_output=False,
+    )
+
+
 ###############################################################################
 # Monthly
 ###############################################################################
@@ -848,11 +1054,6 @@ def summarize_month(
     mondays = month_weeks(year, month)
     _echo(f"=== Monthly summary: {label} ({len(mondays)} overlapping weeks) ===")
 
-    monthly_file = _monthly_path(data_dir, year, month)
-    existing = _existing_if_usable(monthly_file)
-    if existing is None and monthly_file.exists():
-        _echo(f"  Existing monthly summary {label} is empty/corrupt; will regenerate.")
-
     # Phase 1: generate/refresh EVERY daily across the whole month in one parallel
     # pool (up to ``concurrency`` at once), rather than a separate ~7-day batch per
     # week. This is the bulk of the work, so month-wide parallelism is the big win.
@@ -873,6 +1074,7 @@ def summarize_month(
     # rebuild, so a daily regenerated in phase 1 correctly rebuilds its weekly.
     _echo(f"  Phase 2/3: consolidating {len(mondays)} weekly summaries "
           f"(concurrency={min(concurrency, len(mondays))})…")
+    _echo("  Launching weekly jobs: " + ", ".join(week_label(m) for m in mondays))
 
     def _week_job(monday: _dt.date) -> Callable:
         def run(emit: Callable):
@@ -887,7 +1089,11 @@ def summarize_month(
             )
         return run
 
-    week_results = _run_day_jobs([(m, _week_job(m)) for m in mondays], concurrency)
+    week_results = _run_day_jobs(
+        [(m, _week_job(m)) for m in mondays],
+        concurrency,
+        buffer_output=False,
+    )
 
     weekly_texts: List[Tuple[str, str]] = []
     any_week_changed = False
@@ -900,48 +1106,168 @@ def summarize_month(
         if _usable(wk_summary):
             weekly_texts.append((week_label(monday), wk_summary))
 
-    if not weekly_texts:
-        _echo(f"  No weekly summaries available for {label}; nothing to do.")
-        return existing
     _echo("  Phase 3/3: consolidating the monthly summary…")
+    summary, _changed = _consolidate_month(
+        data_dir, year, month, mondays, weekly_texts, model=model, force=force,
+        upstream_changed=any_week_changed, upload=upload, css_file=css_file,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        publish=publish, echo_summary=echo_summary, emit=_echo,
+    )
+    return summary
+
+
+def _consolidate_month(
+    data_dir: Path,
+    year: int,
+    month: int,
+    mondays: List[_dt.date],
+    weekly_texts: List[Tuple[str, str]],
+    model: str,
+    force: bool,
+    upstream_changed: bool,
+    upload: bool,
+    css_file: str,
+    remote_user: str,
+    remote_host: str,
+    remote_path: str,
+    publish: bool,
+    echo_summary: bool,
+    emit: Callable = _echo,
+) -> Tuple[Optional[str], bool]:
+    """Consolidate already-generated weeklies into one monthly summary."""
+    label = f"{year:04d}-{month:02d}"
+    monthly_file = _monthly_path(data_dir, year, month)
+    existing = _existing_if_usable(monthly_file)
+    if existing is None and monthly_file.exists():
+        emit(f"  Existing monthly summary {label} is empty/corrupt; will regenerate.")
+
+    if not weekly_texts:
+        emit(f"  No weekly summaries available for {label}; nothing to do.")
+        return existing, False
 
     stale = _is_stale(monthly_file, [_weekly_path(data_dir, m) for m in mondays])
-    needs_rebuild = force or existing is None or any_week_changed or stale
+    needs_rebuild = force or existing is None or upstream_changed or stale
     if not needs_rebuild:
-        _echo(f"✓ Monthly {label} up to date (no weeks changed); reusing.")
-        _echo(f"  Summary file: {monthly_file}")
+        emit(f"✓ Monthly {label} up to date (no weeks changed); reusing.")
+        emit(f"  Summary file: {monthly_file}")
         if publish:
             _publish(data_dir, existing, f"monthly-{label}", css_file, upload,
-                     remote_user, remote_host, remote_path, "monthly")
-        return existing
+                     remote_user, remote_host, remote_path, "monthly", emit=emit)
+        return existing, False
 
-    if any_week_changed and existing is not None:
-        _echo(f"  Underlying week(s) changed; rebuilding monthly {label}.")
+    if upstream_changed and existing is not None:
+        emit(f"  Underlying week(s) changed; rebuilding monthly {label}.")
     elif stale and existing is not None:
-        _echo(f"  A weekly summary is newer than monthly {label}; rebuilding.")
+        emit(f"  A weekly summary is newer than monthly {label}; rebuilding.")
 
     combined = "\n\n".join(
         f"## Weekly summary: {wk}\n\n{text}" for wk, text in weekly_texts
     )
     prompt = build_monthly_summary_prompt(label, combined)
-    _echo(f"  Consolidating {len(weekly_texts)} weekly summaries into monthly {label} "
-          f"({token_count(prompt)} prompt tokens) with {model}…")
-    summary = _complete_checked(prompt, model, _echo)
+    emit(f"  Consolidating {len(weekly_texts)} weekly summaries into monthly {label} "
+         f"({token_count(prompt)} prompt tokens) with {model}…")
+    summary = _complete_checked(prompt, model, emit)
 
     if not _usable(summary):
-        _echo(f"  ✗ Model returned no usable monthly summary for {label} after "
-              f"{LLM_RETRIES} attempts; NOT writing/uploading (leaving any existing "
-              f"file intact).")
-        return existing
+        emit(f"  ✗ Model returned no usable monthly summary for {label} after "
+             f"{LLM_RETRIES} attempts; NOT writing/uploading (leaving any existing "
+             f"file intact).")
+        return existing, False
 
     ensure_directory(monthly_file.parent)
     monthly_file.write_text(summary, encoding="utf-8")
-    _echo(f"  Saved monthly summary ({token_count(summary)} tokens): {monthly_file}")
+    emit(f"  Saved monthly summary ({token_count(summary)} tokens): {monthly_file}")
 
     if publish:
         _publish(data_dir, summary, f"monthly-{label}", css_file, upload,
-                 remote_user, remote_host, remote_path, "monthly")
+                 remote_user, remote_host, remote_path, "monthly", emit=emit)
     if echo_summary:
-        _echo("\n" + "=" * 70 + f"\nMonthly summary for {label}:\n" + "=" * 70 + "\n")
-        _echo(summary + "\n")
-    return summary
+        emit("\n" + "=" * 70 + f"\nMonthly summary for {label}:\n" + "=" * 70 + "\n")
+        emit(summary + "\n")
+    return summary, True
+
+
+def summarize_months(
+    data_dir: Path,
+    start: Optional[_dt.date] = None,
+    end: Optional[_dt.date] = None,
+    model: str = DEFAULT_MODEL,
+    force: bool = False,
+    upload: bool = True,
+    css_file: str = "wrap.css",
+    remote_user: str = "bryan",
+    remote_host: str = "gnusha.org",
+    remote_path: str = DEFAULT_REMOTE_PATH,
+    publish: bool = True,
+    echo_summary: bool = True,
+    concurrency: int = DEFAULT_CONCURRENCY,
+) -> None:
+    """Summarize months discovered from existing usable weekly summaries.
+
+    Discovery is based on ``data_dir/summaries/weekly/YYYY-Www.md`` files. This
+    intentionally does not generate missing weeklies or dailies; run
+    ``summarize-weeks`` first when needed.
+    """
+    all_mondays = _weekly_summary_mondays(data_dir)
+    if not all_mondays:
+        weekly_dir = _summaries_dir(data_dir) / "weekly"
+        _echo(f"No usable weekly summaries found in {weekly_dir}.")
+        return
+
+    months = _months_overlapped_by_weeks(all_mondays)
+    if start is not None:
+        months = [(y, m) for y, m in months if _dt.date(y, m, 1) >= start]
+    if end is not None:
+        months = [(y, m) for y, m in months if _dt.date(y, m, 1) <= end]
+
+    if not months:
+        _echo("No months matched the requested range.")
+        return
+
+    weekly_set = set(all_mondays)
+    candidates: List[_dt.date] = []
+    rebuild_count = 0
+    month_mondays: dict = {}
+    for year, month in months:
+        key = _dt.date(year, month, 1)
+        mondays = [m for m in month_weeks(year, month) if m in weekly_set]
+        month_mondays[key] = mondays
+        candidates.append(key)
+        monthly_file = _monthly_path(data_dir, year, month)
+        existing = _existing_if_usable(monthly_file)
+        stale = _is_stale(monthly_file, [_weekly_path(data_dir, m) for m in mondays])
+        if force or existing is None or stale:
+            rebuild_count += 1
+
+    reuse_count = len(candidates) - rebuild_count
+    workers = max(1, min(concurrency, len(candidates)))
+    action = "Regenerating" if force else "Summarizing missing/stale"
+    _echo(f"=== {action} {rebuild_count} monthly summaries from existing weekly "
+          f"summaries (checking={len(candidates)}; concurrency={workers}; "
+          f"reusing={reuse_count}) ===")
+    _echo("  Launching monthly jobs: " + ", ".join(f"{d.year:04d}-{d.month:02d}" for d in candidates))
+
+    def _month_job(first_day: _dt.date) -> Callable:
+        def run(emit: Callable):
+            year, month = first_day.year, first_day.month
+            mondays = month_mondays[first_day]
+            weekly_texts = []
+            for monday in mondays:
+                text = _existing_if_usable(_weekly_path(data_dir, monday))
+                if text:
+                    weekly_texts.append((week_label(monday), text))
+            emit(f"=== Monthly summary: {year:04d}-{month:02d} "
+                 f"({len(weekly_texts)} weekly summaries) ===")
+            return _consolidate_month(
+                data_dir, year, month, mondays, weekly_texts, model=model,
+                force=force, upstream_changed=False, upload=upload,
+                css_file=css_file, remote_user=remote_user, remote_host=remote_host,
+                remote_path=remote_path, publish=publish, echo_summary=echo_summary, emit=emit,
+            )
+        return run
+
+    _run_day_jobs(
+        [(first_day, _month_job(first_day)) for first_day in candidates],
+        concurrency,
+        buffer_output=False,
+    )

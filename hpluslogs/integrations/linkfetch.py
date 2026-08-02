@@ -18,7 +18,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import requests
 
@@ -194,20 +194,34 @@ def extract_urls(text: str) -> List[str]:
     return list(seen.keys())
 
 
+def _safe_urlparse(url: str) -> Optional[ParseResult]:
+    """Parse a URL, returning None for malformed URLs seen in old logs."""
+    try:
+        return urlparse(url)
+    except ValueError:
+        return None
+
+
 def _looks_binary(url: str) -> bool:
-    path = urlparse(url).path.lower()
+    parsed = _safe_urlparse(url)
+    if parsed is None:
+        return False
+    path = parsed.path.lower()
     return any(path.endswith(ext) for ext in _BINARY_EXTS)
 
 
 def _is_pdf(url: str, content_type: str) -> bool:
     if "application/pdf" in content_type.lower():
         return True
-    return urlparse(url).path.lower().endswith(".pdf")
+    parsed = _safe_urlparse(url)
+    return parsed is not None and parsed.path.lower().endswith(".pdf")
 
 
 def _title_from_url(url: str) -> str:
     """Derive a human-ish title from a URL path when no HTML title is available."""
-    parsed = urlparse(url)
+    parsed = _safe_urlparse(url)
+    if parsed is None:
+        return url
     tail = parsed.path.rstrip("/").split("/")[-1] or parsed.netloc
     tail = re.sub(r"\.[a-z0-9]{1,5}$", "", tail, flags=re.IGNORECASE)
     tail = tail.replace("-", " ").replace("_", " ").strip()
@@ -330,7 +344,13 @@ def fetch_url(url: str, max_chars: int = 6000, timeout: int = 20) -> Dict[str, O
         "scholarly": looks_scholarly(url),
     }
 
-    host = urlparse(url).netloc.lower()
+    parsed = _safe_urlparse(url)
+    if parsed is None:
+        result["title"] = _title_from_url(url)
+        result["error"] = "invalid URL"
+        return result
+
+    host = parsed.netloc.lower()
     if any(host == h or host.endswith("." + h) for h in _SKIP_HOSTS):
         result["kind"] = "skipped"
         result["error"] = "skipped host"

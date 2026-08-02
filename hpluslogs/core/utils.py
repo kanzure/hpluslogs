@@ -25,6 +25,22 @@ def ensure_directory(path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
+def read_human_text(path: Path) -> str:
+    """Read text files that may contain legacy IRC/archive encodings.
+
+    Prefer strict UTF-8, then fall back to Windows-1252 (common for smart quotes
+    like byte 0x91), and finally Latin-1 so one malformed byte cannot abort a
+    batch job.
+    """
+    raw = path.read_bytes()
+    for encoding in ("utf-8", "utf-8-sig", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1", errors="replace")
+
+
 def token_count(text: str, model: str = "o200k_base") -> int:
     """Return the number of tokens in ``text`` for the specified tokeniser.
 

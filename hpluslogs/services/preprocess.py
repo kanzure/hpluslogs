@@ -9,7 +9,7 @@ from typing import List
 import click
 
 from hpluslogs.core.chunking import chunk_messages, enrich_chunk, parse_log_lines
-from hpluslogs.core.utils import ensure_directory
+from hpluslogs.core.utils import ensure_directory, read_human_text
 
 
 def save_jsonl(chunks: List[dict], path: Path) -> None:
@@ -59,7 +59,7 @@ def run(
             continue
 
         click.echo(f"Processing {log_file.name} …")
-        lines = parse_log_lines(log_file.read_text(encoding="utf-8", errors="replace"))
+        lines = parse_log_lines(read_human_text(log_file))
         messages = list(lines)
         chunks = chunk_messages(messages, max_tokens=max_tokens, overlap=overlap)
         if enrich:

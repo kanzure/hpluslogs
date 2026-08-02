@@ -9,7 +9,7 @@ from typing import List, Set
 
 import click
 
-from hpluslogs.core.utils import ensure_directory, estimate_embedding_cost
+from hpluslogs.core.utils import ensure_directory, estimate_embedding_cost, read_human_text
 from hpluslogs.integrations import chroma, openrouter
 
 
@@ -128,7 +128,7 @@ def run(
     text_len = 0
     remaining_texts: List[dict] = []
     for f in sorted(chunk_dir.glob("*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
+        for line in read_human_text(f).splitlines():
             text_len += 1
             obj_j = json.loads(line)
             meta = {"file": f.stem, "index": obj_j["index"], "start": obj_j["start"], "end": obj_j["end"]}
