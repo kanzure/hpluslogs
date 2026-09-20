@@ -10,7 +10,7 @@ Using the existing IRC-sized **175-token chunks with 20-token overlap** instead
 raises the estimate substantially: budget **64–96 GiB** at 4,096 dimensions.
 
 These are capacity estimates, not benchmarked peak resident memory. The MiniLM
-prototype was retired at the user's request; replacement embeddings will use the
+prototype was retired at the user's request; replacement embeddings now use the
 project's OpenRouter Qwen3 Embedding 8B path. See the updated
 [OpenRouter estimates](papers2-openrouter-costs.md).
 
@@ -35,7 +35,20 @@ models and concurrent jobs will all fit. Recheck before launching additional job
 ssh "$PAPERS_USER@$PAPERS_HOST" 'free -h'
 ```
 
-## Measured input — 2026-09-20 01:20 UTC
+## Current deployment — September 19, 2026
+
+- Qwen3 Embedding 8B via OpenRouter, 4,096 dimensions; 175/20 token windows.
+- Chroma allocation: 96 GiB RAM; embedding worker allocation: 64 GiB.
+- Vector store: `/srv/storage/disk01/hpluslogs-papers-chroma` on SSD, about 5.1 TiB free at deployment.
+- Dedicated model NVMe had 77 GiB free; insufficient for the projected index plus working headroom.
+- Usable Markdown target: 11,324 papers, 1.055 GiB; 413 garbled outputs and 46 unconverted PDFs deferred.
+- Near-complete full-source projection: approximately 1.98 million vectors, 30.2 GiB raw FP32 payload, 62.4 GiB heuristic RAM, 60–121 GiB disk plus text/metadata/WAL. Actual usable scope will be smaller.
+- [Latest detailed embedding/capacity estimate](papers2-openrouter-costs.md); [deployment and status commands](papers2-local-rag.md).
+
+The following small-sample tables are historical and superseded by the measured
+near-complete archive estimates linked above.
+
+## Historical measured input — 2026-09-20 01:20 UTC
 
 | Measurement | Value |
 | --- | ---: |
@@ -47,7 +60,7 @@ ssh "$PAPERS_USER@$PAPERS_HOST" 'free -h'
 | Measured 800/100 chunks | 50,904 |
 | Measured 175/20 chunks | 227,258 |
 
-No embeddings or database were created. Each paper is tokenized separately;
+No embeddings or database were created by that sizing measurement. Each paper is tokenized separately;
 chunks never cross paper boundaries. This estimates the chunked corpus, not
 one embedding per whole paper. `o200k_base` matches the project's chunking/counting
 convention; it is not the Qwen tokenizer or an embedding-provider billing count.
@@ -93,9 +106,9 @@ changes this. The answering LLM adds its own RAM/VRAM requirements. If embedding
 and answers remain API-hosted, those model weights do not occupy local RAM.
 
 The existing IRC embedding service loads all pending chunks and permits high
-concurrency. A future paper implementation should stream bounded batches;
-otherwise client-side ingestion memory can exceed the database-only estimate.
-Keep papers in a separate collection/index with paper citation metadata.
+concurrency. The paper implementation uses bounded batches
+and a separate collection with paper citation metadata. Client-side ingestion
+memory is additional to the database-only estimate.
 
 ## Recompute after pulling more Markdown
 
