@@ -4,10 +4,15 @@
 
 Qwen3 Embedding 8B, 4,096 dimensions; 175-token chunks with 20-token overlap.
 OpenRouter requests use the project client, 80 concurrent workers, batches of up
-to 1,000 chunks, and a persistent $5 cumulative embedding ledger limit. Routing
+to 128 chunks, and a persistent $5 cumulative embedding ledger limit. Routing
 allows Nebius/DeepInfra at no more than $0.01 per million input tokens.
 MiniLM collection `papers2_minilm_v1` was deleted and is not used.
 See [OpenRouter costs](papers2-openrouter-costs.md).
+
+Current deployment uses 128-chunk batches after repeated provider `engine_overloaded`
+responses with 1,000-chunk batches. Worker concurrency remains 80. Completed
+checkpoints are reused; the embedding model, dimensions and chunk boundaries stay
+the same. The CLI accepts `--batch-size` to tune request size.
 
 ## Remote parameters
 
@@ -34,7 +39,7 @@ Existing deployments retain this file; do not commit it.
 
 ```bash
 python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" \
-  --concurrency 80 --batch-size 1000 --cost-limit 5 --port 18081 \
+  --concurrency 80 --batch-size 128 --cost-limit 5 --port 18081 \
   --chroma-data-path "$CHROMA_DATA_PATH" --env-file "$PAPERS_ENV_FILE"
 ```
 
@@ -50,7 +55,7 @@ Outputs failing the text-encoding quality gate are skipped for extraction repair
 ```bash
 # With OPENROUTER_API_KEY exported and the Markdown manifest present:
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-chroma-index \
-  --chroma-port 18081 --concurrency 80 --batch-size 1000 --cost-limit 5 --watch
+  --chroma-port 18081 --concurrency 80 --batch-size 128 --cost-limit 5 --watch
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-chroma-status --chroma-port 18081
 ```
 
@@ -187,7 +192,7 @@ ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 ```bash
 # Recreates only the embedding worker; preserves stored batches:
 python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" \
-  --concurrency 80 --batch-size 1000 --cost-limit 5 \
+  --concurrency 80 --batch-size 128 --cost-limit 5 \
   --chroma-data-path "$CHROMA_DATA_PATH" --env-file "$PAPERS_ENV_FILE"
 ```
 

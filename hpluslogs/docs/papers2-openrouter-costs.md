@@ -67,7 +67,7 @@ PYTHON
 - MiniLM ingestion stopped; automatic restart disabled; `papers2_minilm_v1` deleted (695,841 vectors).
 - OpenRouter ingestion authorized and started September 19, 2026; the PDF conversion pass is finished and OCR recovery is deferred.
 - First live batch: 187,811 input tokens, 1,000 vectors, $0.00187811. Use `papers-chroma-status` for current cumulative spend. xAI uploads remain off.
-- Live settings: 80 workers, batch size 1,000, persistent $5 ledger limit; Nebius/DeepInfra routing capped at $0.01/M.
+- Live settings: 80 workers, batch size 128, persistent $5 ledger limit; Nebius/DeepInfra routing capped at $0.01/M.
 - [Deployment, status and query commands](papers2-local-rag.md).
 
 ## Verified input-token prices — September 19, 2026
