@@ -57,10 +57,11 @@ def register(cli):
     @click.option('--workers', type=click.IntRange(min=1), default=2, show_default=True)
     @click.option('--timeout', type=click.IntRange(min=1), default=600, help='Conversion deadline per document in seconds.')
     @click.option('--limit', type=click.IntRange(min=1), default=None, help='Convert only the first N local PDFs for a sample.')
+    @click.option('--skip-failed', is_flag=True, help='Leave unchanged previously failed PDFs deferred.')
     @click.pass_obj
-    def markdown_cmd(obj, workers, timeout, limit):
+    def markdown_cmd(obj, workers, timeout, limit, skip_failed):
         """Convert PDFs locally with PyMuPDF4LLM; never call xAI."""
-        papers_markdown.convert(obj['data_dir'], workers, timeout, limit)
+        papers_markdown.convert(obj['data_dir'], workers, timeout, limit, skip_failed=skip_failed)
 
     @cli.command('papers-repair')
     @click.option('--workers', type=click.IntRange(min=1), default=8)

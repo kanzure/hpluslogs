@@ -29,8 +29,9 @@ def normalize_unicode(text):
 
 
 def render_markdown(source, **kwargs):
-    """Recover existing hidden OCR text when layout extraction is empty/broken."""
+    """Extract existing text only; new OCR requires the separate repair command."""
     import pymupdf4llm
+    kwargs['use_ocr'] = False
     primary_error = None
     if os.environ.get('PAPERS_PARSER') != 'legacy':
         try:
@@ -43,7 +44,7 @@ def render_markdown(source, **kwargs):
             primary_error = error
     # A visible licensing footer can prevent automatic recognition of hidden OCR.
     # Keep the existing text layer; this mode does not perform new OCR.
-    legacy = {k:v for k,v in kwargs.items() if k not in ('header','footer')}
+    legacy = {k:v for k,v in kwargs.items() if k not in ('header','footer','use_ocr')}
     try:
         pymupdf4llm.use_layout(False)
         text = pymupdf4llm.to_markdown(source, ignore_alpha=True, ignore_images=True,
@@ -128,12 +129,9 @@ def convert_with_page_cache(source, source_path, cache_root, expected_sha, setti
     raw = source_path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != expected_sha:
         raise ValueError('PDF changed before page-batch conversion.')
-    try:
-        tessdata = Path(pymupdf.get_tessdata())/'eng.traineddata'
-        ocr = hashlib.sha256(tessdata.read_bytes()).hexdigest()
-    except (OSError, RuntimeError, TypeError, ValueError):
-        ocr = 'unavailable'
-    cache_key = hashlib.sha256((expected_sha+settings+ocr+':pages20-v1').encode()).hexdigest()
+    # Do not reuse unfinished page batches from the old automatic-OCR policy.
+    # Completed Markdown is still reused by the manifest before this worker runs.
+    cache_key = hashlib.sha256((expected_sha+settings+':pages20-no-ocr-v1').encode()).hexdigest()
     with pymupdf.open(stream=raw,filetype='pdf') as document:
         return cached_markdown(document, cache_root/cache_key, render)
 
@@ -171,7 +169,7 @@ def main():
     UNICODE_REPAIRS.clear()
     configure_inference_threads(int(os.environ.get('PAPERS_INFERENCE_THREADS', '1')))
     import pymupdf4llm
-    # Primary parser/settings match ~/papers/physical-intelligence/run.py.
+    # Layout settings follow ~/papers/physical-intelligence/run.py; OCR is opt-in.
     source = sys.argv[1]
     if any(0xdc80 <= ord(char) <= 0xdcff for char in source):
         # MuPDF's filename interface cannot encode legacy Unix filename bytes.

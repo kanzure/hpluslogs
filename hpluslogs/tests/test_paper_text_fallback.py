@@ -9,6 +9,12 @@ from hpluslogs.services import paper_conversion_worker as worker
 
 
 class TextFallbackTest(unittest.TestCase):
+    def test_normal_conversion_disables_automatic_ocr(self):
+        with patch('pymupdf4llm.to_markdown', return_value='# Existing text') as render, \
+             patch.dict('os.environ', {'PAPERS_PARSER': ''}):
+            self.assertEqual(worker.render_markdown('paper'), '# Existing text')
+        self.assertFalse(render.call_args.kwargs['use_ocr'])
+
     def test_surrogate_pair_is_preserved_and_isolated_surrogate_is_marked(self):
         original = 'DNA \ud83e\uddec; invalid \udcff; ordinary café'
         result = worker.normalize_unicode(original)

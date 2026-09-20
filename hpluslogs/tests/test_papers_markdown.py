@@ -66,6 +66,27 @@ class MarkdownTest(unittest.TestCase):
         self.assertIn('Broken PDF', md.convert_one(self.data, self.source, 'r', 10)[1])
         self.assertEqual(md.cost_report(self.data)['ready_markdown_count'], 0)
 
+    def test_deferred_failure_is_skipped_but_replaced_pdf_is_retried(self):
+        self.runner.side_effect = None
+        self.runner.return_value = NS(returncode=1, stderr=b'Unreadable PDF')
+        self.assertIn('Unreadable PDF', md.convert_one(self.data, self.source, 'r', 10)[1])
+        self.runner.reset_mock()
+        self.assertEqual(md.convert_one(self.data, self.source, 'r', 10, skip_failed=True)[1],
+                         'skipped-failed')
+        self.runner.assert_not_called()
+        self.source.write_bytes(b'%PDF-1.7\nreplacement')
+        self.runner.side_effect = self.fake_convert
+        self.assertEqual(md.convert_one(self.data, self.source, 'r', 10, skip_failed=True)[1],
+                         'converted')
+
+    def test_conversion_cli_forwards_deferred_failure_policy(self):
+        from click.testing import CliRunner
+        from hpluslogs.conversion_cli import cli
+        with patch.object(md, 'convert') as convert:
+            result = CliRunner().invoke(cli, ['--data-dir', str(self.data), 'convert', '--skip-failed'])
+        self.assertEqual(result.exit_code, 0, result.output)
+        convert.assert_called_once_with(self.data, 4, 600, skip_failed=True)
+
     def test_empty_conversion_fails(self):
         def empty(command, **kwargs):
             Path(command[3]).write_text('  \n')
@@ -147,14 +168,14 @@ class MarkdownTest(unittest.TestCase):
         self.assertFalse(report['local_conversion_complete'])
         self.assertEqual(report['ready_markdown_count'], 0)
 
-    def test_conversion_worker_matches_reference_settings(self):
+    def test_conversion_worker_uses_reference_layout_without_ocr(self):
         from hpluslogs.services import paper_conversion_worker as worker
         output = self.data/'out.md'
         with patch.object(worker, 'configure_inference_threads'), \
              patch('pymupdf4llm.to_markdown', return_value='# markdown') as convert, \
              patch.object(worker.sys, 'argv', ['worker', 'input.pdf', str(output)]):
             worker.main()
-        convert.assert_called_once_with('input.pdf', header=False, footer=False)
+        convert.assert_called_once_with('input.pdf', header=False, footer=False, use_ocr=False)
         self.assertEqual(output.read_text(), '# markdown')
 
     def test_inference_thread_limits_preserve_session_options_and_providers(self):
@@ -194,4 +215,4 @@ class MarkdownTest(unittest.TestCase):
              patch.object(worker.sys, 'argv', ['worker', str(source), str(output)]):
             worker.main()
         open_pdf.assert_called_once_with(stream=b'%PDF-test', filetype='pdf')
-        convert.assert_called_once_with(open_pdf.return_value, header=False, footer=False)
+        convert.assert_called_once_with(open_pdf.return_value, header=False, footer=False, use_ocr=False)

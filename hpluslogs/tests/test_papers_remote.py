@@ -10,6 +10,19 @@ from hpluslogs.services import papers_markdown as md, papers_progress, papers_re
 
 
 class RemoteConversionTest(unittest.TestCase):
+    def test_deploy_cli_forwards_deferred_failure_policy(self):
+        from click.testing import CliRunner
+        from hpluslogs.papers_remote_cli import register
+        @click.group()
+        def cli():
+            pass
+        register(cli)
+        with patch.object(papers_remote, 'deploy') as deploy:
+            result = CliRunner().invoke(cli, ['papers-remote-deploy', '--host', 'server.local',
+                '--user', 'user', '--path', '/srv/papers', '--skip-failed'], obj={'data_dir':self.data})
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertTrue(deploy.call_args.kwargs['skip_failed'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -75,7 +88,7 @@ class RemoteConversionTest(unittest.TestCase):
         context = self.data / 'context'; context.mkdir()
         papers_remote.build_context(context)
         files = [str(p.relative_to(context)) for p in context.rglob('*') if p.is_file()]
-        self.assertEqual(len(files), 10)
+        self.assertEqual(len(files), 11)
         self.assertIn('hpluslogs/conversion_cli.py', files)
         self.assertFalse(any('.env' in p or '/data/' in p or p.endswith('.pdf') for p in files))
 

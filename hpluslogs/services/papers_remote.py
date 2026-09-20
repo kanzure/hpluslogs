@@ -137,7 +137,7 @@ def transfer_pdfs_tar(remote, source_root, sources, source_list):
     click.echo('Tar transfer complete.')
 
 
-def deploy(data_dir, remote, workers=48, timeout=600, transfer='tar'):
+def deploy(data_dir, remote, workers=48, timeout=600, transfer='tar', skip_failed=False):
     # Lock prevents changing the local checkpoint/source while it is transferred.
     with papers.exclusive(data_dir), tempfile.TemporaryDirectory(prefix='papers-deploy-') as tmp:
         remote.require_stopped()
@@ -186,7 +186,7 @@ def deploy(data_dir, remote, workers=48, timeout=600, transfer='tar'):
                        '--label', 'hpluslogs.role=paper-conversion', '--restart', 'no',
                        '--stop-timeout', str(timeout + 30), '--cpus', str(workers),
                        *remote.runtime_args(), remote.image, 'convert', '--workers', str(workers),
-                       '--timeout', str(timeout))
+                       '--timeout', str(timeout), *(['--skip-failed'] if skip_failed else []))
         click.echo(f'Conversion started: {remote.target}:{remote.path} ({workers} workers).')
 
 

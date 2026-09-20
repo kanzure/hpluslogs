@@ -50,7 +50,7 @@ def output_path(relative):
     return f'{digest[:2]}/{stem}-{digest}.md'
 
 
-def convert_one(data_dir, path, settings, timeout):
+def convert_one(data_dir, path, settings, timeout, skip_failed=False):
     pdf_root = papers.paths(data_dir)[0]
     relative = path.relative_to(pdf_root).as_posix()
     key = papers.path_key(relative)
@@ -62,6 +62,9 @@ def convert_one(data_dir, path, settings, timeout):
         size = path.stat().st_size
         digest = papers.sha256(path)
         row = db.execute('SELECT * FROM conversions WHERE pdf_path=?', (key,)).fetchone()
+        if (skip_failed and row and row['status'] == 'failed'
+                and row['pdf_sha256'] == digest and row['recipe'] == settings):
+            return key, 'skipped-failed'
         if (row and row['status'] == 'ready' and row['pdf_sha256'] == digest
                 and row['recipe'] == settings and target.is_file()
                 and papers.sha256(target) == row['markdown_sha256']):
@@ -111,7 +114,7 @@ def convert_one(data_dir, path, settings, timeout):
         db.close()
 
 
-def convert(data_dir, workers=2, timeout=600, limit=None):
+def convert(data_dir, workers=2, timeout=600, limit=None, skip_failed=False):
     settings = recipe()
     with papers.exclusive(data_dir):
         root(data_dir).mkdir(parents=True, exist_ok=True)
@@ -122,6 +125,7 @@ def convert(data_dir, workers=2, timeout=600, limit=None):
             raise click.ClickException('No local PDFs found. Restore papers2 first.')
         counts = {}
         run = {'started_at': time.time(), 'workers': workers, 'timeout': timeout,
+               'skip_failed': skip_failed,
                'pid': os.getpid(), 'state': 'running',
                'inference_threads_per_worker': int(os.environ.get('PAPERS_INFERENCE_THREADS', '1'))}
         run_file = data_dir / 'papers2_conversion_run.json'
@@ -135,7 +139,7 @@ def convert(data_dir, workers=2, timeout=600, limit=None):
         pool = ThreadPoolExecutor(max_workers=workers)
         try:
             def work(path):
-                return convert_one(data_dir, path, settings, timeout)
+                return convert_one(data_dir, path, settings, timeout, skip_failed=skip_failed)
             futures = [pool.submit(work, path) for path in files]
             for done, future in enumerate(as_completed(futures), 1):
                 key, result = future.result()

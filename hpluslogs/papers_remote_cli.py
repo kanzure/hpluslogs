@@ -32,6 +32,7 @@ def register(cli):
     @click.option('--workers', type=click.IntRange(min=1), default=48, show_default=True)
     @click.option('--timeout', type=click.IntRange(min=1), default=600)
     @click.option('--transfer', type=click.Choice(['tar', 'rsync']), default='tar', show_default=True)
+    @click.option('--skip-failed', is_flag=True, help='Leave unchanged previously failed PDFs deferred.')
     @click.pass_obj
     def deploy(obj, **kwargs):
         """Copy PDFs/checkpoints, build Docker, and resume remote conversion only."""

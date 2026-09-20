@@ -16,10 +16,11 @@ def cli(ctx, data_dir):
 @cli.command()
 @click.option('--workers', type=click.IntRange(min=1), default=4)
 @click.option('--timeout', type=click.IntRange(min=1), default=600)
+@click.option('--skip-failed', is_flag=True, help='Leave unchanged previously failed PDFs deferred.')
 @click.pass_obj
-def convert(data_dir, workers, timeout):
+def convert(data_dir, workers, timeout, skip_failed):
     """Resume PDF conversion, without uploading or indexing."""
-    papers_markdown.convert(data_dir, workers, timeout)
+    papers_markdown.convert(data_dir, workers, timeout, skip_failed=skip_failed)
 
 
 @cli.command()
