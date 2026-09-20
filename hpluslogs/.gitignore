@@ -12,3 +12,6 @@ data/
 
 # node / mdream (HTML->markdown link converter)
 node_modules/
+
+# Machine-specific paper query defaults (no credentials).
+.papers-query.env
