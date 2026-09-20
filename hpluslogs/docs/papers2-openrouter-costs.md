@@ -1,10 +1,48 @@
 # papers2 — OpenRouter embedding cost estimate
 
+## Updated whole-archive estimate — September 19, 2026
+
+**About $3.49 total, once, for the current usable Markdown scope.** This includes
+embedding spend already incurred; it is not an additional fee or a monthly bill.
+The $5 cumulative ledger limit remains in place.
+
+| Scope | Markdown files | Markdown size | Estimated input tokens, including overlap | Estimated vectors | One-time OpenRouter cost |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Usable Markdown being indexed | 11,324 | 1.055 GiB | 348.55 million | 1.88 million | **$3.49** |
+| All generated Markdown, including 413 garbled outputs currently skipped | 11,737 | 1.111 GiB | 367.10 million | 1.98 million | **$3.67** |
+
+Calculated by scaling the previous near-complete Qwen token measurement by the
+final Markdown byte totals, using 175/20 chunks and $0.01/M tokens. This is an
+approximation, not a fresh tokenizer pass or a provider quote; changed text mix,
+retries and query embeddings can change the final charge. The 46 unconverted PDFs
+are excluded. The ledger's roughly $0.32 at the time of this update covered all
+requests so far, not only the large handbook finishing during the worker upgrade.
+
+[Calculation snapshot](papers2-openrouter-size-estimate-2026-09-19.json).
+Nebius and DeepInfra rates rechecked against the public endpoint API for this update.
+Local Chroma has no hosted monthly storage charge. For the separate xAI alternative,
+see [monthly storage estimates](papers2-xai-costs.md): about $3.96/month for usable
+Markdown or $4.17/month for all generated Markdown **if index size equals Markdown**,
+plus search/model charges. xAI uploads remain off.
+
+```bash
+python - <<'PYTHON'
+import json
+from pathlib import Path
+p = Path('hpluslogs/docs')
+b = json.loads((p/'papers2-openrouter-estimate-2026-09-19.json').read_text())
+c = next(x for x in b['projections'] if x['chunk_size'] == 175)
+for label, size in [('usable', 1132819233), ('all generated', 1193113963)]:
+    tokens = c['estimated_measured_input_tokens'] * size / b['markdown_bytes']
+    print(label, round(tokens), 'estimated input tokens;', round(tokens / 1e6 * .01, 2), 'USD once')
+PYTHON
+```
+
 ## Decision / current state
 
 - Use the project's existing `qwen/qwen3-embedding-8b` OpenRouter adapter, with **4,096-dimensional vectors**.
 - MiniLM ingestion stopped; automatic restart disabled; `papers2_minilm_v1` deleted (695,841 vectors).
-- OpenRouter ingestion authorized and started September 19, 2026; PDF conversion continues.
+- OpenRouter ingestion authorized and started September 19, 2026; the PDF conversion pass is finished and OCR recovery is deferred.
 - First live batch: 187,811 input tokens, 1,000 vectors, $0.00187811. Use `papers-chroma-status` for current cumulative spend. xAI uploads remain off.
 - Live settings: 80 workers, batch size 1,000, persistent $5 ledger limit; Nebius/DeepInfra routing capped at $0.01/M.
 - [Deployment, status and query commands](papers2-local-rag.md).
@@ -24,7 +62,7 @@
 The existing adapter allows OpenRouter to route requests; the cheapest price is
 not a guaranteed cap unless provider routing/pricing is constrained.
 
-## Full-archive measurement
+## Earlier full-archive measurement
 
 **Estimate: about $3.70 once using Nebius/DeepInfra, or $14.80 once at
 SiliconFlow's rate.** Suggested allowance: $5 with low-price routing enforced,
@@ -52,10 +90,9 @@ by about 4.5×. PDF papers use fixed token windows for this estimate; the IRC
 implementation also respects message boundaries.
 
 Ranges extrapolate by paper count and PDF bytes; they are **not confidence
-intervals**. Conversion/recovery is unfinished. A text-encoding audit flagged
-412 outputs for review (flags do not prove every output is unusable); repair can
-change the final counts. The indexer skips outputs failing its encoding-quality
-gate; recalculate after repairs.
+intervals**. Conversion/recovery was unfinished at that measurement. The final
+text-encoding check excluded 413 outputs from the current run. OCR recovery is
+deferred; the updated size-based estimate above uses the completed Markdown totals.
 
 Exact measured snapshot: [papers2-openrouter-estimate-2026-09-19.json](papers2-openrouter-estimate-2026-09-19.json).
 

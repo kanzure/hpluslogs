@@ -1,0 +1,29 @@
+{
+  "method": "Scale measured Qwen token and overlap estimate by total Markdown bytes; approximate, not a new full tokenization or invoice.",
+  "baseline_markdown_bytes": 1180702107,
+  "baseline_estimated_input_tokens": 363282769,
+  "usd_per_million_tokens": 0.01,
+  "chunk_tokens": 175,
+  "overlap_tokens": 20,
+  "dimensions": 4096,
+  "scopes": [
+    {
+      "scope": "Usable Markdown (current run)",
+      "files": 11324,
+      "markdown_bytes": 1132819233,
+      "markdown_gib": 1.0550201246514916,
+      "estimated_input_tokens": 348549990,
+      "estimated_vectors": 1881498,
+      "one_time_embedding_usd": 3.485499901294715
+    },
+    {
+      "scope": "All generated Markdown (including skipped garbled outputs)",
+      "files": 11737,
+      "markdown_bytes": 1193113963,
+      "markdown_gib": 1.1111739678308368,
+      "estimated_input_tokens": 367101695,
+      "estimated_vectors": 1981642,
+      "one_time_embedding_usd": 3.6710169452691894
+    }
+  ]
+}
