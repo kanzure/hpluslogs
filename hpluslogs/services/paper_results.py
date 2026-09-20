@@ -75,18 +75,27 @@ def answer_markdown(answer, passages):
     code and existing links rather than rewriting their contents.
     """
     urls = {str(i): p['metadata']['source_url'] for i, p in enumerate(passages, 1)}
+    number_range = r'\d+(?:\s*[-–]\s*\d+)?'
+    citation_numbers = number_range+r'(?:\s*[,;]\s*'+number_range+r')*'
     tokens = re.compile(
         r'(?P<code>`+)(?:(?!(?P=code)).)*?(?P=code)'
         r'|!?\[(?:\\.|[^\]\\])*\]\([^\n]*?\)'
-        r'|\[(?!\d+\])(?:\\.|[^\]\\])*\]\[[^\]\n]*\]'
+        r'|\[(?!'+citation_numbers+r'\])(?:\\.|[^\]\\])*\]\[[^\]\n]*\]'
         r'|<[^>\n]+>|\\.'
-        r'|(?P<citation>\[(?P<number>\d+)\])')
+        r'|(?P<citation>\[(?P<numbers>'+citation_numbers+r')\])')
 
     def cite(match):
-        number = match.group('number')
-        if number in urls:
-            return f'[\\[{number}\\]](<{urls[number]}>)'
-        return match.group(0)
+        if not match.group('numbers'):
+            return match.group(0)
+        numbers = []
+        for part in re.split(r'[,;]', match.group('numbers')):
+            bounds = [int(n.strip()) for n in re.split(r'[-–]', part)]
+            start, end = bounds[0], bounds[-1]
+            # Do not invent sources or expand arbitrary/out-of-range numbers.
+            if not 1 <= start <= end <= len(passages):
+                return match.group(0)
+            numbers.extend(str(n) for n in range(start, end+1))
+        return ' '.join(f'[\\[{n}\\]](<{urls[n]}>)' for n in numbers)
 
     lines, fence = [], None
     list_item = re.compile(r'^ {0,3}(?:[-+*]|\d+[.)])\s+')

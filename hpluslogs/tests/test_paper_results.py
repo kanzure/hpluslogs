@@ -76,6 +76,22 @@ class PaperResultsTest(unittest.TestCase):
         self.assertEqual(pr.answer_markdown(untouched, self.result['passages']), untouched)
 
     @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc not installed')
+    def test_grouped_and_range_citations_link_each_source(self):
+        self.result['passages'] = [
+            {'content': f'Source {i}', 'metadata': {'pdf_path': f'{i}.pdf',
+                'source_url': f'https://example.org/{i}.pdf'}} for i in range(1, 5)]
+        self.result['answer'] = 'Comma [1, 4], semicolon [2; 3], range [1–3, 4], adjacent [1, 2][3-4].'
+        pr.publish_result(self.root, self.result, 'grouped', upload=False)
+        html = (self.root/'outputs/grouped.html').read_text().split('<h2 id="sources">')[0]
+        self.assertEqual(html.count('<a href='), 12)
+        for i in range(1, 5):
+            self.assertEqual(html.count(f'<a href="https://example.org/{i}.pdf">[{i}]</a>'), 3)
+        untouched = (
+            '`array[1, 2]` [label][1, 2] [1, 2](https://example.org/existing)\n'
+            'Unknown [1, 999] and invalid [3-1] and huge [1-99999999999].')
+        self.assertEqual(pr.answer_markdown(untouched, self.result['passages']), untouched)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc not installed')
     def test_upload_uses_papers_directory_and_includes_both_formats_and_css(self):
         with patch.object(pr.scp, 'ensure_remote_directory', return_value=True) as mkdir, \
              patch.object(pr.scp, 'upload_file', return_value=True) as upload:
