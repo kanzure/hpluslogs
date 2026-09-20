@@ -234,3 +234,44 @@ ssh "$PAPERS_TARGET" "systemctl --user stop ${PAPERS_CONTAINER}-text-retry.servi
 Use separate state names for successive watchers; do not queue multiple watchers
 to replace the same running container. The original OCR watcher may remain active
 waiting for its already-started retry to finish.
+
+## Optional OCR repair — disabled at user request
+
+OCR recovery is deferred. The repair watcher was canceled before any archive
+repair container started. Existing usable Markdown continues indexing; text that
+fails the encoding-quality gate remains skipped. The commands below are optional
+future invocations, not part of the current run.
+
+```bash
+# Build without stopping current conversion or indexing:
+python -m hpluslogs.cli papers-remote-build "${PAPERS_REMOTE[@]}"
+# Automatically start repair after the current converter exits:
+python -m hpluslogs.cli papers-remote-repair "${PAPERS_REMOTE[@]}" --workers 16 --timeout 1800
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_repair_watch.json'"
+ssh "$PAPERS_TARGET" "docker logs --tail 10 ${PAPERS_CONTAINER}-repair"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_repair_report.json'"
+# Local equivalents, once normal conversion has stopped:
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-repair
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-repair --apply --workers 16 --timeout 1800
+```
+
+Repair keeps PDFs unchanged, backs up replaced Markdown, and checkpoints each OCR
+page. Repeating the command skips repaired text and reuses completed page batches.
+The Chroma watcher picks up repaired Markdown on its next pass. OCR can misread
+characters; citations should be checked against the PDF when precision matters.
+
+Verified on the 20-page mix-design paper: 47,105 readable Markdown bytes;
+42.0 seconds initially, 0.48 seconds resumed, identical SHA-256. Unit checks cover
+source changes, failed repair preserving prior output, backups and idempotency.
+
+## Verified Qwen RAG example — September 19, 2026
+
+```bash
+ssh "$PAPERS_TARGET" "docker exec ${CHROMA_CONTAINER}-index python -m hpluslogs.papers_chroma_cli papers-chroma-query --model '$PAPERS_LLM_MODEL' --top-k 4 --output-name qwen-dna-answer 'How does DNA interact with an insulating post in an electric field?'"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_local_queries/qwen-dna-answer.json'"
+```
+
+Verified retrieval of the electrophoretic DNA/post collision paper and electric-field
+DNA placement paper. The generated answer cites stretching, hook/roll-off events
+and Deborah-number dependence from retrieved excerpts. This validates the query
+path; indexing of usable Markdown remains in progress; OCR-dependent papers are skipped.

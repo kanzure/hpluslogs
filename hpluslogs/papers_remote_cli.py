@@ -78,3 +78,12 @@ def register(cli):
     def monitor(obj, **kwargs):
         """Record progress/ETA every five minutes on the remote host until conversion ends."""
         invoke('monitor', obj, **kwargs)
+
+    @cli.command('papers-remote-repair')
+    @connection_options
+    @click.option('--workers', type=click.IntRange(min=1), default=16)
+    @click.option('--timeout', type=click.IntRange(min=1), default=1800)
+    @click.pass_obj
+    def repair(obj, **kwargs):
+        """Schedule offline OCR repair after the current conversion finishes."""
+        invoke('repair', obj, **kwargs)

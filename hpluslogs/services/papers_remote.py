@@ -297,3 +297,23 @@ def monitor(remote, interval=300):
                    remote.path+'/watcher/report_papers_progress.py', '--container', remote.name,
                    '--data-dir', remote.path+'/data', '--interval', str(interval))
     click.echo(f'Recording progress every {interval} seconds until the converter exits: {unit}')
+
+
+def repair(remote, workers=16, timeout=1800):
+    """Schedule offline OCR recovery after the currently observed conversion run."""
+    unit = remote.name+'-repair-watch'
+    active = remote.command('systemctl', '--user', 'show', unit+'.service',
+                            '--property=ActiveState', '--value', capture=True).stdout.strip()
+    if active in ('active', 'activating'):
+        click.echo(f'Repair watcher already running: {unit}')
+        return
+    image = remote.command('docker', 'image', 'inspect', '--format', '{{.Id}}',
+                           remote.image, capture=True).stdout.strip()
+    remote.command('mkdir', '-p', remote.path+'/watcher')
+    script = Path(__file__).resolve().parents[1]/'scripts/repair_papers_after_conversion.py'
+    remote.rsync(str(script), remote.location('watcher/'+script.name))
+    remote.command('systemd-run', '--user', '--collect', '--unit', unit,
+                   '/usr/bin/python3', '-u', remote.path+'/watcher/'+script.name,
+                   '--container', remote.name, '--data-dir', remote.path+'/data',
+                   '--image', image, '--workers', str(workers), '--timeout', str(timeout))
+    click.echo(f'OCR repair scheduled after current conversion: {unit}')
