@@ -12,7 +12,7 @@ def get_sync_client():
     import xai_sdk
     return xai_sdk.Client(
         api_key=os.environ.get("XAI_API_KEY"),
-        management_api_key=os.environ.get("XAI_MANAGEMENT_API_KEY"),
+        management_api_key=os.environ.get("XAI_MANAGEMENT_API_KEY") or os.environ.get("XAI_MANAGEMENT_KEY"),
         timeout=3600,
     )
 
@@ -22,7 +22,7 @@ def get_async_client():
     import xai_sdk
     return xai_sdk.AsyncClient(
         api_key=os.environ.get("XAI_API_KEY"),
-        management_api_key=os.environ.get("XAI_MANAGEMENT_API_KEY"),
+        management_api_key=os.environ.get("XAI_MANAGEMENT_API_KEY") or os.environ.get("XAI_MANAGEMENT_KEY"),
         timeout=3600,
     )
 

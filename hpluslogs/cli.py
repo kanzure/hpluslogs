@@ -17,6 +17,7 @@ import click
 
 from hpluslogs.core.prompts import AAF_SYSTEM_PROMPT, FIGHTAGING_SYSTEM_PROMPT, GRG_SYSTEM_PROMPT, LESSWRONG_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT
 from hpluslogs.core.utils import ensure_directory, token_count
+from hpluslogs.papers_cli import register as register_paper_commands
 from hpluslogs.services import download, embedding, generation, preprocess, publishing, search, summarize, summary_index, xai_upload
 
 
@@ -1197,6 +1198,9 @@ def generate_summary_index_cmd(obj: dict, upload: bool, remote_user: str,
     click.echo(f"Wrote summary index: {path}")
     if upload:
         click.echo(f"Uploaded index.html to: {remote_user}@{remote_host}:{remote_path}")
+
+
+register_paper_commands(cli)
 
 
 def main() -> None:
