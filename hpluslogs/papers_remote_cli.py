@@ -20,6 +20,13 @@ def register(cli):
         except (subprocess.CalledProcessError, FileNotFoundError) as error:
             raise click.ClickException(str(error)) from error
 
+    @cli.command('papers-remote-build')
+    @connection_options
+    @click.pass_obj
+    def build(obj, **kwargs):
+        """Build an updated conversion image; preserve running jobs and remote data."""
+        invoke('build', obj, **kwargs)
+
     @cli.command('papers-remote-deploy')
     @connection_options
     @click.option('--workers', type=click.IntRange(min=1), default=48, show_default=True)

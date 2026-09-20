@@ -81,6 +81,17 @@ def build_context(destination):
         shutil.copy2(project / 'docker/papers' / name, destination / name)
 
 
+def build(remote):
+    """Update an existing deployment's image without touching running jobs/data."""
+    remote.command('test', '-f', remote.path+'/.hpluslogs-papers-conversion')
+    with tempfile.TemporaryDirectory(prefix='papers-build-') as tmp:
+        build_context(Path(tmp))
+        remote.command('mkdir', '-p', remote.path+'/build')
+        remote.rsync(tmp+'/', remote.location('build/'), '--delete')
+        remote.command('docker', 'build', '-t', remote.image, remote.path+'/build')
+    click.echo(f'Built {remote.image}; running containers retain their existing image.')
+
+
 def transfer_pdfs_tar(remote, source_root, sources, source_list):
     """Stream changed PDFs over SSH; preserve nanosecond mtimes for future resumes."""
     import os

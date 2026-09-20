@@ -104,7 +104,8 @@ are preserved; the retry uses the same PyMuPDF4LLM settings. OCR can contain err
 Empty or invalid source files still require replacement; inspect failures afterward.
 
 ```bash
-# Build/deploy an OCR-capable image using the normal remote conversion workflow.
+# Build the updated image without stopping conversion or transferring PDFs:
+python -m hpluslogs.cli papers-remote-build "${PAPERS_REMOTE[@]}"
 # To schedule a retry while the existing converter is still running:
 scp hpluslogs/scripts/retry_papers_conversion.py "$PAPERS_TARGET:$PAPERS_PATH/watcher/retry_papers_conversion.py"
 ssh "$PAPERS_TARGET" "systemd-run --user --unit=${PAPERS_CONTAINER}-ocr-retry --collect python3 '$PAPERS_PATH/watcher/retry_papers_conversion.py' --config '$PAPERS_PATH/watcher/config.json' --workers 16 --timeout 1800"
@@ -190,7 +191,8 @@ Verified recovery: pneumatic stepping motor paper, 21,621 Markdown bytes includi
 title, abstract and body. Conversion tests: 60 passing.
 
 ```bash
-# After building the updated conversion image, queue one additional recovery pass:
+# Build while conversion is running, then queue one additional recovery pass:
+python -m hpluslogs.cli papers-remote-build "${PAPERS_REMOTE[@]}"
 scp hpluslogs/scripts/retry_papers_conversion.py "$PAPERS_TARGET:$PAPERS_PATH/watcher/retry_papers_conversion.py"
 ssh "$PAPERS_TARGET" "systemd-run --user --unit=${PAPERS_CONTAINER}-text-retry --collect python3 '$PAPERS_PATH/watcher/retry_papers_conversion.py' --config '$PAPERS_PATH/watcher/config.json' --workers 32 --timeout 1800 --state-name papers2_text_retry"
 ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_text_retry.json'"
