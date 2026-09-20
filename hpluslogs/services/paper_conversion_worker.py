@@ -7,6 +7,25 @@ import sys
 import tempfile
 
 USED_PARSERS = set()
+UNICODE_REPAIRS = set()
+
+
+def normalize_unicode(text):
+    """Preserve surrogate pairs; mark isolated invalid code units as U+FFFD."""
+    import re
+    repairs = set()
+    def replace(match):
+        value = match.group()
+        if len(value) == 2:
+            repairs.add('surrogate-pair-decoded')
+            return chr(0x10000 + ((ord(value[0])-0xd800)<<10) + ord(value[1])-0xdc00)
+        repairs.add('unpaired-surrogate-replaced')
+        return '\ufffd'
+    if isinstance(text, str):
+        text = re.sub('[\ud800-\udbff][\udc00-\udfff]|[\ud800-\udfff]', replace, text)
+    render_markdown.last_unicode_repairs = sorted(repairs)
+    UNICODE_REPAIRS.update(repairs)
+    return text
 
 
 def render_markdown(source, **kwargs):
@@ -19,7 +38,7 @@ def render_markdown(source, **kwargs):
             if isinstance(text,str) and text.strip():
                 render_markdown.last_parser = 'layout'
                 USED_PARSERS.add('layout')
-                return text
+                return normalize_unicode(text)
         except Exception as error:
             primary_error = error
     # A visible licensing footer can prevent automatic recognition of hidden OCR.
@@ -31,7 +50,7 @@ def render_markdown(source, **kwargs):
                                      ignore_graphics=True, **legacy)
         render_markdown.last_parser = 'legacy-hidden-text'
         USED_PARSERS.add('legacy-hidden-text')
-        return text
+        return normalize_unicode(text)
     except Exception:
         if primary_error is not None:
             raise primary_error
@@ -84,6 +103,7 @@ def cached_markdown(document, cache_dir, render, page_size=20):
                 raise ValueError('Page batch did not return Markdown text.')
             record = {'pages':[first,end], 'markdown':text,
                       'sha256':hashlib.sha256(text.encode()).hexdigest(),
+                      'unicode_repairs':getattr(render,'last_unicode_repairs',[]),
                       'parser':getattr(render,'last_parser','layout'), 'empty_policy':'legacy-fallback-v1'}
             with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=cache_dir,
                                              suffix='.tmp', delete=False) as handle:
@@ -92,6 +112,7 @@ def cached_markdown(document, cache_dir, render, page_size=20):
             temp.replace(path)
         output.append(record['markdown'])
         USED_PARSERS.add(record.get('parser','layout'))
+        UNICODE_REPAIRS.update(record.get('unicode_repairs',[]))
     return '\n\n'.join(output)
 
 
@@ -119,6 +140,7 @@ def convert_with_page_cache(source, source_path, cache_root, expected_sha, setti
 
 def main():
     USED_PARSERS.clear()
+    UNICODE_REPAIRS.clear()
     configure_inference_threads(int(os.environ.get('PAPERS_INFERENCE_THREADS', '1')))
     import pymupdf4llm
     # Primary parser/settings match ~/papers/physical-intelligence/run.py.
@@ -135,7 +157,8 @@ def main():
     if not isinstance(markdown, str) or not markdown.strip():
         raise ValueError('No Markdown text extracted; inspect the PDF/OCR result.')
     Path(sys.argv[2]).write_text(markdown, encoding='utf-8')
-    Path(sys.argv[2]+'.extraction.json').write_text(json.dumps({'parsers':sorted(USED_PARSERS)}),encoding='utf-8')
+    Path(sys.argv[2]+'.extraction.json').write_text(json.dumps({
+        'parsers':sorted(USED_PARSERS), 'unicode_repairs':sorted(UNICODE_REPAIRS)}),encoding='utf-8')
 
 
 if __name__ == '__main__':

@@ -9,6 +9,16 @@ from hpluslogs.services import paper_conversion_worker as worker
 
 
 class TextFallbackTest(unittest.TestCase):
+    def test_surrogate_pair_is_preserved_and_isolated_surrogate_is_marked(self):
+        original = 'DNA \ud83e\uddec; invalid \udcff; ordinary café'
+        result = worker.normalize_unicode(original)
+        self.assertEqual(result, 'DNA 🧬; invalid \ufffd; ordinary café')
+        self.assertEqual(result.encode().decode(), result)
+        self.assertEqual(worker.render_markdown.last_unicode_repairs,
+                         ['surrogate-pair-decoded','unpaired-surrogate-replaced'])
+        self.assertEqual(worker.normalize_unicode('valid 🧬'), 'valid 🧬')
+        self.assertEqual(worker.render_markdown.last_unicode_repairs, [])
+
     def test_empty_layout_recovers_hidden_text_and_restores_parser(self):
         with patch('pymupdf4llm.to_markdown', side_effect=['', '# Actual body']) as render, \
              patch('pymupdf4llm.use_layout') as mode, \

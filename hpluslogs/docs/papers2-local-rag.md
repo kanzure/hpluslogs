@@ -186,6 +186,9 @@ hidden text enabled. Native segmentation faults retry in a fresh process within
 the original deadline. Fallback output can retain headers/footers. Parser provenance:
 `data/papers2_extraction_metadata/<markdown-relative-path>.json`.
 Existing completed Markdown stays unchanged; old empty page batches are rechecked.
+Malformed Unicode is normalized before writing/cache hashing: valid surrogate pairs
+become their original character; isolated surrogates become U+FFFD. The same metadata
+records these repairs. Verified on WordGesture-GAN: 85,946 Markdown bytes recovered.
 
 Verified recovery: pneumatic stepping motor paper, 21,621 Markdown bytes including
 title, abstract and body. Conversion tests: 60 passing.
