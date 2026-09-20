@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@mdream/rust-linux-x64-gnu": "^1.4.1",
+    "mdream": "^1.4.1"
+  }
+}

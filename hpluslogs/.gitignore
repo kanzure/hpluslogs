@@ -9,3 +9,6 @@ __pycache__/
 
 # ignore raw data dumps
 data/
+
+# node / mdream (HTML->markdown link converter)
+node_modules/
