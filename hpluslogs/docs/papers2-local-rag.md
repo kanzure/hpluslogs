@@ -307,3 +307,22 @@ Usable Markdown: 1,132,819,233 bytes (1.055 GiB). All generated Markdown:
 `data/papers2_markdown_eligibility.json`. Conversion is finished; indexing continues.
 The final Chroma audit must verify all 11,324 usable documents, with the 413
 encoding exclusions listed explicitly. Example queries do not prove full coverage.
+
+## Embedding transfer / resume-cache optimization
+
+The SDK requests compact base64 embedding transport and decodes to the same
+4,096-dimensional float vectors. Resume-cache JSON uses `orjson`; existing cache
+files remain readable. Model, chunking, collection, price cap and checkpoint IDs
+are unchanged. A 100-vector serialization benchmark was 0.453s versus 0.018s
+(24.7x for serialization only), with identical decoded values. A live CLI query
+using compact transport retrieved the expected DNA/post collision paper.
+
+[OpenRouter embedding formats](https://openrouter.ai/docs/api/api-reference/embeddings/submit-an-embedding-request).
+
+```bash
+# Drain active papers before deliberately replacing the embedding worker:
+ssh "$PAPERS_TARGET" "docker update --restart=no ${CHROMA_CONTAINER}-index"
+ssh "$PAPERS_TARGET" "docker kill --signal=SIGINT ${CHROMA_CONTAINER}-index"
+ssh "$PAPERS_TARGET" "docker wait ${CHROMA_CONTAINER}-index"
+# Then use the deploy/resume command above. Long papers can take time to drain.
+```
