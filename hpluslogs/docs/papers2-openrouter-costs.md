@@ -4,8 +4,10 @@
 
 - Use the project's existing `qwen/qwen3-embedding-8b` OpenRouter adapter, with **4,096-dimensional vectors**.
 - MiniLM ingestion stopped; automatic restart disabled; `papers2_minilm_v1` deleted (695,841 vectors).
-- **OpenRouter embedding spend so far: $0. xAI spend: $0.**
-- Replacement embedding requests have not started. PDF-to-Markdown conversion continues.
+- OpenRouter ingestion authorized and started September 19, 2026; PDF conversion continues.
+- First live batch: 187,811 input tokens, 1,000 vectors, $0.00187811. Use `papers-chroma-status` for current cumulative spend. xAI uploads remain off.
+- Live settings: 80 workers, batch size 1,000, persistent $5 ledger limit; Nebius/DeepInfra routing capped at $0.01/M.
+- [Deployment, status and query commands](papers2-local-rag.md).
 
 ## Verified input-token prices — September 19, 2026
 
@@ -52,7 +54,8 @@ implementation also respects message boundaries.
 Ranges extrapolate by paper count and PDF bytes; they are **not confidence
 intervals**. Conversion/recovery is unfinished. A text-encoding audit flagged
 412 outputs for review (flags do not prove every output is unusable); repair can
-change the final counts. Recalculate after that work before paid ingestion.
+change the final counts. The indexer skips outputs failing its encoding-quality
+gate; recalculate after repairs.
 
 Exact measured snapshot: [papers2-openrouter-estimate-2026-09-19.json](papers2-openrouter-estimate-2026-09-19.json).
 
@@ -64,8 +67,10 @@ Exact measured snapshot: [papers2-openrouter-estimate-2026-09-19.json](papers2-o
 | 800 / 100 | 6.74–6.75 GiB | 15.47–15.51 GiB | 32 GiB | 14–27 GiB plus text/metadata/WAL |
 
 **bigboy.local has enough RAM:** 372.9 GiB total, approximately 257 GiB available
-at the latest check. Its current deployment drive has only about **60 GiB free**;
-the 175/20 configuration needs a roomier data location before ingestion.
+at the latest check. The Chroma store is now on
+`/srv/storage/rust1/hpluslogs-papers-chroma`, with about **14 TiB free** at the
+September 19 deployment check. The conversion root remains on the system disk;
+rust2 is not used.
 Disk planning uses 2–4× vector payload; actual Chroma usage varies with index,
 documents, metadata and WAL. [Chroma resource guidance](https://cookbook.chromadb.dev/core/resources/).
 

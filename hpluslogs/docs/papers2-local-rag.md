@@ -1,13 +1,13 @@
 # Local Chroma paper RAG
 
-## MiniLM deployment retired — September 19, 2026
+## OpenRouter Qwen + local Chroma
 
-User requested the project's OpenRouter Qwen3 Embedding 8B path at 4,096 dimensions.
-MiniLM ingestion is stopped, restart disabled, and `papers2_minilm_v1` deleted
-(695,841 vectors). **Commands below describe the retired prototype; do not restart
-its indexer or deploy it.** PDF conversion continues. Replacement embedding is on
-hold for the measured cost estimate; no paid embedding requests have been made.
-See [OpenRouter estimates](papers2-openrouter-costs.md).
+Qwen3 Embedding 8B, 4,096 dimensions; 175-token chunks with 20-token overlap.
+OpenRouter requests use the project client, 80 concurrent workers, batches of up
+to 1,000 chunks, and a persistent $5 cumulative embedding ledger limit. Routing
+allows Nebius/DeepInfra at no more than $0.01 per million input tokens.
+MiniLM collection `papers2_minilm_v1` was deleted and is not used.
+See [OpenRouter costs](papers2-openrouter-costs.md).
 
 ## Remote parameters
 
@@ -21,19 +21,41 @@ PAPERS_REMOTE=(--host "$PAPERS_HOST" --user "$PAPERS_USER" --path "$PAPERS_PATH"
 PAPERS_CONTAINER="hpluslogs-papers-$(python -c 'import hashlib,sys; from pathlib import PurePosixPath; print(hashlib.sha256(str(PurePosixPath(sys.argv[1])).encode()).hexdigest()[:12])' "$PAPERS_PATH")"
 CHROMA_CONTAINER="${PAPERS_CONTAINER}-chroma"
 PAPERS_LLM_MODEL=your-local-served-model-name
+CHROMA_DATA_PATH=/srv/storage/rust1/hpluslogs-papers-chroma
+PAPERS_ENV_FILE="$PAPERS_PATH/config/openrouter.env"
 ```
+
+## Private credentials on remote host
+
+Create `$PAPERS_ENV_FILE` with `OPENROUTER_API_KEY=...`, mode 600.
+Existing deployments retain this file; do not commit it.
 
 ## Deploy / resume indexing
 
 ```bash
-python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" --workers 4 --port 18081
+python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" \
+  --concurrency 80 --batch-size 1000 --cost-limit 5 --port 18081 \
+  --chroma-data-path "$CHROMA_DATA_PATH" --env-file "$PAPERS_ENV_FILE"
 ```
 
-Local MiniLM-L6-v2 embeddings: 384 dimensions; 224-wordpiece chunks, 32 overlap.
-Model downloaded during Docker build; papers remain local. Chroma listens on remote
-loopback only. Indexer watches completed Markdown every 120 seconds, including new
-PDF conversions. Both services restart after reboot. Index checkpoints persist in
-`data/papers2_chroma.sqlite3`; vectors in `data/chroma`. PDF conversion runs separately.
+Chroma listens on remote loopback only. Its vectors, documents and index are
+stored at `CHROMA_DATA_PATH` on rust1. Conversion data and resumable checkpoints
+remain under `$PAPERS_PATH/data`. No rust2 storage is used.
+The indexer watches completed Markdown every 120 seconds; both containers restart
+after reboot. Hash checkpoints and cached embedding batches preserve progress.
+Outputs failing the text-encoding quality gate are skipped for extraction repair.
+
+## Direct hpluslogs CLI
+
+```bash
+# With OPENROUTER_API_KEY exported and the Markdown manifest present:
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-chroma-index \
+  --chroma-port 18081 --concurrency 80 --batch-size 1000 --cost-limit 5 --watch
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-chroma-status --chroma-port 18081
+```
+
+Do not run a second indexer against the same data directory. The deployment
+container runs the same registered commands through `hpluslogs.papers_chroma_cli`.
 
 ## Progress / indexing ETA / errors / resources
 
@@ -81,29 +103,23 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-deploy "${PAPERS
 # The running Chroma watcher picks up completed Markdown automatically.
 ```
 
-## Release embedding CPU / restart
+## Pause / resume embedding requests
 
 ```bash
 ssh "$PAPERS_TARGET" "docker stop ${CHROMA_CONTAINER}-index"
 ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 ```
 
-## References
-
-[Chroma server deployment](https://docs.trychroma.com/guides/deploy/docker).
-[MiniLM model and context limit](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2).
-This local index uses MiniLM, not the 4096-dimensional Qwen sizing scenario in
-`papers2-chroma-sizing.md`. No hosted embedding or vector-storage charges.
-
-## Verified deployment — September 19, 2026
+## Deployment — September 19, 2026
 
 - Host: `kanzure@bigboy.local`; root: `/home/kanzure/hpluslogs-papers-conversion`.
-- Chroma 1.4.0 on `127.0.0.1:18081`; collection `papers2_minilm_v1`.
-- Local answer model: `qwen-flash-next-uncensored-sglang`, `http://127.0.0.1:8080/v1`.
-- Verified DNA surface-alignment answer retrieved COMMIC and electric-field stretching papers, with numbered citations.
-- Verified carbon-nanotube placement retrieval returned source passages.
-- Example artifacts: remote `data/papers2_local_queries/dna-surface-example.json` and `nanotube-placement-example.json`.
-- Initial coverage check: 290 indexed papers / 19,932 chunks; 6,753 converted papers. Indexing continues; examples do not prove full-archive coverage.
+- Chroma 1.4.0 on `127.0.0.1:18081`; collection `papers2_qwen3_8b_4096_v1`.
+- Chroma storage: `/srv/storage/rust1/hpluslogs-papers-chroma`; 96 GiB RAM limit.
+- First live OpenRouter batch: 1,000 stored vectors, 187,811 billed tokens, $0.00187811.
+- Local answer endpoint: `http://127.0.0.1:8080/v1`; model `qwen-flash-next-uncensored-sglang`.
+- Old MiniLM query artifacts are historical; they do not validate Qwen coverage.
+
+[Chroma server deployment](https://docs.trychroma.com/guides/deploy/docker).
 
 ## OCR retry after the current conversion pass
 
@@ -145,13 +161,13 @@ ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_chroma_audit.json'"
 ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 ```
 
-## Embedding concurrency
+## Change embedding concurrency
 
 ```bash
-# Restarts only the embedding worker; stored batches are preserved:
-python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" --workers 8
-# After PDF conversion frees CPU, increase if other host workloads permit:
-python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" --workers 16
+# Recreates only the embedding worker; preserves stored batches:
+python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" \
+  --concurrency 80 --batch-size 1000 --cost-limit 5 \
+  --chroma-data-path "$CHROMA_DATA_PATH" --env-file "$PAPERS_ENV_FILE"
 ```
 
 ## Classify conversion failures
