@@ -75,9 +75,14 @@ def convert_one(data_dir, path, settings, timeout):
             # PyMuPDF is not thread-safe; each document runs in its own process,
             # with a deadline so one bad PDF cannot stall the entire collection.
             worker = Path(__file__).with_name('paper_conversion_worker.py')
-            completed = subprocess.run([sys.executable, str(worker), str(path.resolve()), str(result.resolve()),
-                                        str((data_dir/'papers2_page_cache').resolve()), digest, settings],
-                                       capture_output=True, timeout=timeout)
+            command = [sys.executable, str(worker), str(path.resolve()), str(result.resolve()),
+                       str((data_dir/'papers2_page_cache').resolve()), digest, settings]
+            started = time.monotonic()
+            completed = subprocess.run(command, capture_output=True, timeout=timeout)
+            remaining = timeout-(time.monotonic()-started)
+            if completed.returncode == -11 and remaining > 0:
+                completed = subprocess.run(command, capture_output=True, timeout=remaining,
+                                           env={**os.environ, 'PAPERS_PARSER':'legacy'})
             if completed.returncode:
                 detail = completed.stderr.decode('utf-8', errors='replace')[-2000:]
                 raise ValueError(f'Converter exited {completed.returncode}: {detail}')
@@ -88,6 +93,11 @@ def convert_one(data_dir, path, settings, timeout):
                 raise ValueError('PDF changed during conversion; rerun papers-markdown after the restore finishes.')
             md_digest, md_size = papers.sha256(result), result.stat().st_size
             result.replace(target)
+            metadata = Path(str(result)+'.extraction.json')
+            if metadata.exists():
+                destination = data_dir/'papers2_extraction_metadata'/(output+'.json')
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                metadata.replace(destination)
         with db:
             db.execute('INSERT OR REPLACE INTO conversions VALUES (?,?,?,?,?,?,?,?,?,?)',
                        (key, digest, size, output, md_digest, md_size, settings, 'ready', None, time.time()))

@@ -177,3 +177,28 @@ reuse, not general conversion throughput. The scheduled OCR retry uses 32 worker
 Conversion progress includes 5-, 15-, 60- and 120-minute rates. Use the short window
 when the remaining work changes from articles to long books; timeouts and OCR
 retries can still make the final tail slower than an extrapolated ETA.
+
+## Empty extraction / hidden OCR fallback
+
+Empty or failed layout extraction retries PyMuPDF4LLM's alternate parser with
+hidden text enabled. Native segmentation faults retry in a fresh process within
+the original deadline. Fallback output can retain headers/footers. Parser provenance:
+`data/papers2_extraction_metadata/<markdown-relative-path>.json`.
+Existing completed Markdown stays unchanged; old empty page batches are rechecked.
+
+Verified recovery: pneumatic stepping motor paper, 21,621 Markdown bytes including
+title, abstract and body. Conversion tests: 60 passing.
+
+```bash
+# After building the updated conversion image, queue one additional recovery pass:
+scp hpluslogs/scripts/retry_papers_conversion.py "$PAPERS_TARGET:$PAPERS_PATH/watcher/retry_papers_conversion.py"
+ssh "$PAPERS_TARGET" "systemd-run --user --unit=${PAPERS_CONTAINER}-text-retry --collect python3 '$PAPERS_PATH/watcher/retry_papers_conversion.py' --config '$PAPERS_PATH/watcher/config.json' --workers 32 --timeout 1800 --state-name papers2_text_retry"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_text_retry.json'"
+ssh "$PAPERS_TARGET" "journalctl --user -u ${PAPERS_CONTAINER}-text-retry.service -n 10 --no-pager"
+# Cancel queued recovery before intentionally stopping all conversion:
+ssh "$PAPERS_TARGET" "systemctl --user stop ${PAPERS_CONTAINER}-text-retry.service ${PAPERS_CONTAINER}-ocr-retry.service"
+```
+
+Use separate state names for successive watchers; do not queue multiple watchers
+to replace the same running container. The original OCR watcher may remain active
+waiting for its already-started retry to finish.

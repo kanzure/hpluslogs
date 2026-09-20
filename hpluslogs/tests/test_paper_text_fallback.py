@@ -1,0 +1,39 @@
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from hpluslogs.services import paper_conversion_worker as worker
+
+
+class TextFallbackTest(unittest.TestCase):
+    def test_empty_layout_recovers_hidden_text_and_restores_parser(self):
+        with patch('pymupdf4llm.to_markdown', side_effect=['', '# Actual body']) as render, \
+             patch('pymupdf4llm.use_layout') as mode, \
+             patch.dict('os.environ', {'PAPERS_PARSER': ''}):
+            self.assertEqual(worker.render_markdown('paper', header=False, footer=False, pages=[0]), '# Actual body')
+        self.assertEqual([call.args for call in mode.call_args_list], [(False,), (True,)])
+        self.assertEqual(render.call_args.kwargs, dict(ignore_alpha=True, ignore_images=True, ignore_graphics=True, pages=[0]))
+        self.assertEqual(worker.render_markdown.last_parser, 'legacy-hidden-text')
+
+    def test_exception_preserves_original_error_and_restores_parser(self):
+        with patch('pymupdf4llm.to_markdown', side_effect=[ValueError('original'), RuntimeError('fallback')]), \
+             patch('pymupdf4llm.use_layout') as mode, \
+             patch.dict('os.environ', {'PAPERS_PARSER': ''}):
+            with self.assertRaisesRegex(ValueError, 'original'):
+                worker.render_markdown('paper')
+        self.assertEqual(mode.call_args.args, (True,))
+
+    def test_old_empty_batch_is_rechecked_but_new_empty_batch_is_reused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'00000000-00000001.json').write_text(json.dumps({
+                'pages': [0,1], 'markdown': '', 'sha256': hashlib.sha256(b'').hexdigest()}))
+            with patch('pymupdf4llm.to_markdown', return_value='') as render, \
+                 patch('pymupdf4llm.use_layout'):
+                worker.cached_markdown(range(1), root, worker.render_markdown)
+                self.assertEqual(render.call_count, 2)
+                worker.cached_markdown(range(1), root, worker.render_markdown)
+                self.assertEqual(render.call_count, 2)

@@ -73,6 +73,27 @@ class MarkdownTest(unittest.TestCase):
         self.runner.side_effect = empty
         self.assertIn('No Markdown', md.convert_one(self.data, self.source, 'r', 10)[1])
 
+    def test_native_crash_retries_alternate_parser_with_remaining_deadline(self):
+        def retry(command, **kwargs):
+            if self.runner.call_count == 1:
+                return NS(returncode=-11, stderr=b'')
+            self.assertEqual(kwargs['env']['PAPERS_PARSER'], 'legacy')
+            self.assertGreater(kwargs['timeout'], 0)
+            self.assertLessEqual(kwargs['timeout'], 10)
+            Path(command[3]+'.extraction.json').write_text('{"parsers":["legacy-hidden-text"]}')
+            return self.fake_convert(command, **kwargs)
+        self.runner.side_effect = retry
+        self.assertEqual(md.convert_one(self.data, self.source, 'r', 10)[1], 'converted')
+        metadata = self.data/'papers2_extraction_metadata'/(md.output_path('paper.pdf')+'.json')
+        self.assertEqual(json.loads(metadata.read_text())['parsers'], ['legacy-hidden-text'])
+        self.assertEqual(self.runner.call_count, 2)
+
+    def test_termination_does_not_trigger_retry(self):
+        self.runner.side_effect = None
+        self.runner.return_value = NS(returncode=-15, stderr=b'')
+        self.assertIn('exited -15', md.convert_one(self.data, self.source, 'r', 10)[1])
+        self.assertEqual(self.runner.call_count, 1)
+
     def test_pdf_changed_during_conversion_fails(self):
         def concurrent_change(command, **kwargs):
             result = self.fake_convert(command, **kwargs)

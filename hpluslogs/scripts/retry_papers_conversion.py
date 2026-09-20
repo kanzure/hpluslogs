@@ -26,9 +26,13 @@ def main():
     p.add_argument('--config',type=Path,required=True)
     p.add_argument('--workers',type=int,default=16)
     p.add_argument('--timeout',type=int,default=1800)
+    p.add_argument('--state-name',default='papers2_conversion_retry',
+                   help='Unique basename for the retry state and previous-run log')
     args=p.parse_args()
     if args.workers<1 or args.timeout<1:
         p.error('Workers and timeout must be positive')
+    if not args.state_name or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in args.state_name):
+        p.error('State name must contain only letters, digits, underscores or hyphens')
     config=json.loads(args.config.read_text())
     container=config['container']
     original=inspect(container)
@@ -37,7 +41,7 @@ def main():
     command=launch_command(config,image_id,args.workers,args.timeout)
     data=Path(config['data_dir'])
     record={'waiting_for':original['Id'],'retry_image':image_id,'workers':args.workers,'timeout':args.timeout,'state':'waiting'}
-    state_path=data/'papers2_conversion_retry.json'
+    state_path=data/(args.state_name+'.json')
     def save():
         record['updated']=time.time()
         temp=state_path.with_suffix('.tmp');temp.write_text(json.dumps(record,indent=2));temp.replace(state_path)
@@ -51,7 +55,7 @@ def main():
             break
         time.sleep(30)
     logs=subprocess.run(['docker','logs',container],capture_output=True,check=True)
-    (data/'conversion-before-ocr-retry.log').write_bytes(logs.stdout+logs.stderr)
+    (data/(args.state_name+'-previous.log')).write_bytes(logs.stdout+logs.stderr)
     subprocess.run(['docker','rm',container],check=True)
     completed=subprocess.run(command,text=True,capture_output=True,check=True)
     record.update(state='retry_started',container_id=completed.stdout.strip());save()
