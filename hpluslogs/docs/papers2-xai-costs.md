@@ -2,22 +2,35 @@
 
 ## Latest saved estimate — 2026-09-19, America/Chicago
 
-**$2.89–$3.81 per 30 days for storage**, assuming the billable collection index
-is the same size as the Markdown. This is a projection, not a measured xAI bill.
-Nothing has been uploaded; this collection's incurred xAI cost is **$0**.
+**$4.15–$4.16 per 30 days for full-archive storage**, assuming the billable
+collection index is the same size as the Markdown. Current completed Markdown
+would cost **$4.13 per 30 days** under that assumption. PDFs are excluded.
+This is a projection, not a measured xAI bill. Nothing has been uploaded;
+this collection's incurred xAI cost is **$0**. OpenRouter embeddings and local
+Chroma ingestion were subsequently authorized separately; see
+[OpenRouter costs](papers2-openrouter-costs.md).
 
-| Measured locally | Value |
+Measured on the conversion host at **2026-09-19 22:43 CDT**
+(2026-09-20 03:43 UTC), using `papers-remote-progress`:
+
+| Measurement | Value |
 | --- | ---: |
 | Eligible source PDFs | 11,783 |
-| Completed Markdown files | 2,009 |
-| Completed Markdown bytes | 141,324,532 |
-| Completed Markdown size | 134.78 MiB |
-| Full archive projection, per-paper average | 0.772 GiB |
-| Full archive projection, PDF-to-Markdown byte ratio | 1.015 GiB |
+| Completed Markdown files | 11,736 |
+| Failed PDFs | 45 |
+| PDFs still converting | 2 |
+| Completed Markdown bytes | 1,183,969,424 |
+| Completed Markdown size | 1,129.12 MiB / 1.102657 GiB |
+| Full archive projection, per-paper average | 1.107073 GiB |
+| Full archive projection, PDF-to-Markdown byte ratio | 1.109045 GiB |
+| Current Markdown file storage / 30 days | $0.83 |
+| Current assumed collection storage / 30 days | $3.31 |
+| Current combined storage / 30 days, before rounding components | $4.13 |
 
-The successful subset is nonrandom. Failures, scans requiring OCR, and the
-remaining papers can change the final size. The range spans two extrapolation
-methods, not a statistical confidence interval.
+Conversion continues with 32 workers; the progress reporter records every five
+minutes. The successful subset is nonrandom. Failed-file recovery and text
+quality repairs can change the final size. The range spans two extrapolation
+methods, not a statistical confidence interval or an upload-readiness audit.
 
 ## Published rates — checked 2026-09-19
 
@@ -56,14 +69,14 @@ page; verify actual account charges before a bulk upload.
 
 ## Sensitivity to index size
 
-For projected Markdown of 0.772–1.015 GiB:
+For projected Markdown of 1.107073–1.109045 GiB:
 
 | Assumed index size | Storage / 30 days |
 | --- | ---: |
-| 1× Markdown | $2.89–$3.81 |
-| 3× Markdown | $7.53–$9.90 |
-| 5× Markdown | $12.16–$15.98 |
-| 10× Markdown | $23.74–$31.21 |
+| 1× Markdown | $4.15–$4.16 |
+| 3× Markdown | $10.79–$10.81 |
+| 5× Markdown | $17.44–$17.47 |
+| 10× Markdown | $34.04–$34.10 |
 
 The original $25/month limit is not guaranteed by the 1× assumption.
 `--monthly-budget 25` is an estimated upload gate, not a provider spending cap;
