@@ -5,13 +5,13 @@
 | Completed indexing | Value |
 | --- | ---: |
 | Usable papers / stored vectors | 11,324 / 1,876,298 |
-| Recorded embedding input tokens | 347,441,606 |
-| Recorded cumulative embedding cost | **$3.47441606 once** |
+| Recorded embedding input tokens | 347,441,670 |
+| Recorded cumulative embedding cost | **$3.47441670 once** |
 | Unresolved reservation from an earlier request | $0.00141643 |
 | Cumulative ledger limit | $5 |
 
-Measured after ingestion, before the final two answer checks. The ledger includes
-earlier query embeddings. Later queries/new or changed papers add usage. The
+Measured after ingestion and both final answer checks. The ledger includes
+query embeddings. Later queries/new or changed papers add usage. The
 reservation is an unknown billing outcome, not a confirmed charge. All provider
 failures were resolved; 413 unreadable outputs and 46 unconverted PDFs remain
 deferred. Local Chroma storage has no provider monthly subscription charge.

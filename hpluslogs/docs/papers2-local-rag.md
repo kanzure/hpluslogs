@@ -1,5 +1,14 @@
 # Local Chroma paper RAG
 
+## Verified archive — September 20, 2026
+
+- **11,324 usable papers; 1,876,298 vectors; 4,096 dimensions.**
+- Full passage audit: stable snapshot, zero errors. [Saved audit](papers2-chroma-audit-2026-09-20.json).
+- 413 unreadable Markdown outputs and 46 unconverted PDFs deferred; OCR disabled.
+- Two cited-answer queries verified against the completed collection; commands below.
+- Watcher restart verified: zero new embedding requests for unchanged papers.
+- [Observed embedding cost](papers2-openrouter-costs.md): **$3.47 once**.
+
 ## OpenRouter Qwen + local Chroma
 
 Qwen3 Embedding 8B, 4,096 dimensions; 175-token chunks with 20-token overlap.
@@ -143,8 +152,9 @@ ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 
 [Chroma server deployment](https://docs.trychroma.com/guides/deploy/docker).
 
-## OCR retry after the current conversion pass
+## Optional OCR retry — currently disabled
 
+These commands are for a future explicitly requested OCR recovery pass.
 English Tesseract data is included in the conversion image. A previously empty
 scanned PDF produced 10,020 Markdown bytes in a real smoke test. Completed outputs
 are preserved; the retry uses the same PyMuPDF4LLM settings. OCR can contain errors.
@@ -185,7 +195,7 @@ request overhead while preserving the same per-passage checks.
 
 ```bash
 ssh "$PAPERS_TARGET" "docker stop ${CHROMA_CONTAINER}-index"
-ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data ${CHROMA_CONTAINER}:latest papers-chroma-audit --allow-skipped"
+ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data --cpus 4 --memory 64g --memory-swap 64g ${CHROMA_CONTAINER}:latest papers-chroma-audit --allow-skipped"
 ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_chroma_audit.json'"
 ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 ```
@@ -227,7 +237,7 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-deploy "${PAPERS
 
 Verified on 201 pages: 11 saved batches, all page markers retained, identical
 Markdown on resume; initial 28.9 seconds, resumed 0.9 seconds. This measures cache
-reuse, not general conversion throughput. The scheduled OCR retry uses 32 workers.
+reuse, not general conversion throughput.
 
 Conversion progress includes 5-, 15-, 60- and 120-minute rates. Use the short window
 when the remaining work changes from articles to long books; timeouts and OCR
@@ -259,8 +269,8 @@ ssh "$PAPERS_TARGET" "systemctl --user stop ${PAPERS_CONTAINER}-text-retry.servi
 ```
 
 Use separate state names for successive watchers; do not queue multiple watchers
-to replace the same running container. The original OCR watcher may remain active
-waiting for its already-started retry to finish.
+to replace the same running container. OCR and text-repair watchers are inactive
+in the current deployment.
 
 ## Optional OCR repair — disabled at user request
 
@@ -301,24 +311,25 @@ ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_local_queries/qwen-dna-answ
 Verified retrieval of the electrophoretic DNA/post collision paper and electric-field
 DNA placement paper. The generated answer cites stretching, hook/roll-off events
 and Deborah-number dependence from retrieved excerpts. This validates the query
-path; indexing of usable Markdown remains in progress; OCR-dependent papers are skipped.
+path; full usable-Markdown coverage subsequently passed the audit linked above.
 
-## Current indexing scope — September 19, 2026, 23:05 CDT
+## Archive inventory — September 20, 2026
 
 | Archive check | Count |
 | --- | ---: |
 | Source PDFs | 11,783 |
 | Completed Markdown, all hashes verified | 11,737 |
-| Usable Markdown indexing target | 11,324 |
+| Indexed usable Markdown | 11,324 |
 | Garbled Markdown deferred; OCR disabled | 413 |
 | Unconverted PDFs deferred | 46 |
 | Markdown hash/read failures | 0 |
 
 Usable Markdown: 1,132,819,233 bytes (1.055 GiB). All generated Markdown:
 1,193,113,963 bytes (1.111 GiB). Saved remote inventory:
-`data/papers2_markdown_eligibility.json`. Conversion is finished; indexing continues.
-The final Chroma audit must verify all 11,324 usable documents, with the 413
-encoding exclusions listed explicitly. Example queries do not prove full coverage.
+`data/papers2_markdown_eligibility.json`. Conversion is finished. The full Chroma
+audit verified all 11,324 usable documents and 1,876,298 stored passages, with
+413 encoding exclusions listed explicitly. The watcher remains available for new
+or changed Markdown; it reuses completed checkpoints.
 
 ## Embedding transfer / resume-cache optimization
 
@@ -350,3 +361,15 @@ Verified retrieval includes the Handbook of Cell Signaling, an excitable gene
 regulatory circuit paper, and trainable molecular-network computation. The saved
 artifact contains the generated answer, numbered citations and exact retrieved
 passages.
+
+## Verified queries against the complete usable archive
+
+DNA polymerase selectivity/proofreading; cellular positive/negative feedback.
+Both saved results contain answers, numbered citations, exact passages and URLs.
+
+```bash
+ssh "$PAPERS_TARGET" "docker exec ${CHROMA_CONTAINER}-index python -m hpluslogs.papers_chroma_cli papers-chroma-query --model '$PAPERS_LLM_MODEL' --top-k 6 --output-name qwen-full-dna-answer 'How do DNA polymerase selectivity and proofreading contribute to replication fidelity?'"
+ssh "$PAPERS_TARGET" "docker exec ${CHROMA_CONTAINER}-index python -m hpluslogs.papers_chroma_cli papers-chroma-query --model '$PAPERS_LLM_MODEL' --top-k 6 --output-name qwen-full-feedback-answer 'How do positive and negative feedback affect cellular signaling pathways?'"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_local_queries/qwen-full-dna-answer.json'"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_local_queries/qwen-full-feedback-answer.json'"
+```
