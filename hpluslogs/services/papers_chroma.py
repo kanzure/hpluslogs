@@ -268,11 +268,13 @@ def answer(query, passages, url, model):
     return response.json()['choices'][0]['message']['content']
 
 
-def audit(data_dir, host, port, page_size=500):
+def audit(data_dir, host, port, page_size=20000):
     """Verify every stored passage and every current ready Markdown checkpoint.
 
     Quiesce conversion/indexing for a conclusive final report. No embeddings or
-    model calls are made. Counts alone are insufficient: offsets, bytes, IDs,
+    model calls are made. Large readback pages amortize Chroma's per-request
+    scan overhead; embeddings are excluded from these responses.
+    Counts alone are insufficient: offsets, bytes, IDs,
     revisions, source URLs and complete chunk sequences must agree.
     """
     coll = collection(host, port)
