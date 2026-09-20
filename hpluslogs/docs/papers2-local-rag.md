@@ -133,6 +133,9 @@ Default LLM pass: extensive technical report covering mechanisms, evidence and
 comparisons, limitations, speculative research ideas, references and named entities.
 Claims cite retrieved excerpts; speculation is labeled. Output budget: 8,192 tokens
 (a ceiling, not a guaranteed length). Retrieval and embeddings are unchanged.
+The LLM may discard irrelevant or uninformative results and consolidate duplicates;
+it keeps relevant conflicting evidence and original citation numbers. The saved
+JSON and context files retain the full retrieval for inspection.
 Verified September 20: [microfluidics report](https://diyhpl.us/~bryan/irc/chatgpt/papers2/microfluidics-technical-report.html),
 1,962 words from 100 passages, including all six analysis sections and a comparison table.
 
