@@ -326,3 +326,15 @@ ssh "$PAPERS_TARGET" "docker kill --signal=SIGINT ${CHROMA_CONTAINER}-index"
 ssh "$PAPERS_TARGET" "docker wait ${CHROMA_CONTAINER}-index"
 # Then use the deploy/resume command above. Long papers can take time to drain.
 ```
+
+## Second Qwen RAG example — cellular signaling
+
+```bash
+ssh "$PAPERS_TARGET" "docker exec ${CHROMA_CONTAINER}-index python -m hpluslogs.papers_chroma_cli papers-chroma-query --model '$PAPERS_LLM_MODEL' --top-k 6 --output-name qwen-feedback-answer 'How do positive and negative feedback affect cellular signaling pathways?'"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_local_queries/qwen-feedback-answer.json'"
+```
+
+Verified retrieval includes the Handbook of Cell Signaling, an excitable gene
+regulatory circuit paper, and trainable molecular-network computation. The saved
+artifact contains the generated answer, numbered citations and exact retrieved
+passages.
