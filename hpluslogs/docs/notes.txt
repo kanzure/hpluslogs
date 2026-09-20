@@ -300,6 +300,14 @@ OPENROUTER_API_KEY
 XAI_API_KEY
 XAI_MANAGEMENT_KEY
 
+
+time python -m hpluslogs.cli --data-dir hpluslogs/data summarize-days --concurrency 4 --resume
+time python -m hpluslogs.cli --data-dir hpluslogs/data summarize-weeks --concurrency 16 --resume
+python -m hpluslogs.cli summarize-month --force --month 2026-07
+python -m hpluslogs.cli summarize-month --month 2026-07
+python -m hpluslogs.cli generate-summary-index
+
+
 these could actually be executed in parallel if you wanted:
 python3 -m hpluslogs.cli orionsarm-query "writing guidelines or rules" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "writing-guidelines.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "immortality or immortals or longevity or anti-aging or indefinite lifespan" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "immortality.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "bioweapons" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "bioweapons.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "cryonics or cryopreservation" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "cryonics.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "genetic engineering enhancements or genetic engineering targets or genengineering target traits" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "genetic-engineering.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "brain uploading and brain uploading methods" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "brain-uploading.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "super intelligence" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "superintelligence.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "science fiction book recommendation" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "scifi-recommendations.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "exotic matter" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "exotic-matter.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "space tethers" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "space-tethers.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "weird or very large space ships" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "spaceships.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "alien molecular biology" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "biology.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "star dams or other daming of stars or enclosures of star systems" --prompt-fragment "Speculation and ideas pertaining to star dams or enclosures around stars and star systems, or even larger structures." --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "stardams.xai-collection"; python3 -m hpluslogs.cli orionsarm-query "largest megastructures" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "megastructures.xai-collection";
 
@@ -310,6 +318,37 @@ anti-cancer pathways
 young blood rejuvenation
 plasma exchange
 plasma filtering
+total plasma exchange
+
+resveratrol
+[x] rapamycin
+
+time python3 -m hpluslogs.cli grg-query "evidence against rapamycin" --top-k 300 --model openrouter/google/gemini-3-pro-preview --output-name "against-rapamycin.gemini" &
+time python3 -m hpluslogs.cli grg-query "evidence against resveratrol" --top-k 300 --model openrouter/google/gemini-3-pro-preview --output-name "against-resveratrol.gemini" &
+time python3 -m hpluslogs.cli grg-query "a whole family of people where they all age very slowly or have exceptionally low aging even in old age" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "family-evidence.gemini" &
+time python3 -m hpluslogs.cli grg-query "the nature and purpose of sleep" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "sleep" &
+time python3 -m hpluslogs.cli grg-query "evolution of sleep" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "sleep-evolution" &
+time python3 -m hpluslogs.cli grg-query "unusual beneficial sleep phenotypes including short sleep but also other unusual beneficial sleep phenotypes" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "sleep-unusual" &
+time python3 -m hpluslogs.cli grg-query "sleep and aging" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "sleep-aging" &
+time python3 -m hpluslogs.cli grg-query "hibernation" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "hibernation" &
+time python3 -m hpluslogs.cli grg-query "hypothalamus" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "hypothalamus" &
+time python3 -m hpluslogs.cli grg-query "sleep patterns of supercentenarians" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --prompt-fragment "Please look for information regarding whether supercentenarians slept for 20 hours per day throughout their life, or only after getting super old? What was their sleep like throughout earlier life? etc." --output-name "supercentenarian-sleep-patterns"
+time python3 -m hpluslogs.cli grg-query "supercentenarian light sleeper phenotype" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "supercentenarian-light-sleepers" &
+time python3 -m hpluslogs.cli grg-query "unusual findings about supercentarians or a particular supercentenarian with some sort of weird trait or condition" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --output-name "weird-supercentenarians" &
+time python3 -m hpluslogs.cli grg-query "causes of aging" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --prompt-fragment "Make a comprehensive bulletpoint list of all the causes of aging found in the context." --output-name causes-of-aging &
+time python3 -m hpluslogs.cli grg-query "lifestyle intervention for anti-aging" --top-k 300 --model openrouter/x-ai/grok-4.1-fast --prompt-fragment "Make a comprehensive bulletpoint list of lifestyle interventions for the purposes of anti-aging or delayed aging or delaying the negative effects of aging." --output-name lifestyle-interventions &
+time python3 -m hpluslogs.cli grg-query "reversal of neurodegeneration or rejuvenation of neurodegeneration" --top-k 100 --model openrouter/x-ai/grok-4.1-fast --output-name neurodegeneration-reversal &
+
+
+TODO: GRG embeddings using qwen3 8b
+TODO: local chromadb embeddings using openai gpt embeddings model?
+
+
+python3 -m hpluslogs.cli xai-query "diabetes" --top-k 300 --model openrouter/~google/gemini-pro-latest  --prompt-fragment "Find research directions in diabetes in particular T1D (type 1 diabetes), including autoimmune, cell therapies, genetic engineering, etc" --output-name diabetes
+
+
+python -m hpluslogs.cli --data-dir hpluslogs/data summarize-day --date 2026-04-12 --no-upload --max-links-daily 1000 2>&1
+
 
 
 

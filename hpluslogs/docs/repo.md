@@ -42,6 +42,7 @@ Low-level adapters that wrap external APIs and services. Each module handles a s
 - **gnusha.py** - HTTP fetcher for IRC logs from gnusha.org
 - **pandoc.py** - Shell wrapper for pandoc HTML generation
 - **scp.py** - Shell wrapper for scp file uploads
+- **linkfetch.py** - Extracts URLs from log text and follows them, converting each page to LLM-friendly markdown via mdream (falls back to regex text extraction); used by the summarization service
 
 Integrations should be stateless and focused on a single external service.
 
@@ -56,6 +57,7 @@ Business logic that orchestrates integrations. Services implement the actual wor
 - **generation.py** - Builds RAG prompts and calls LLMs
 - **publishing.py** - Saves output, generates HTML, uploads to server
 - **xai_upload.py** - Uploads documents to xAI Collections
+- **summarize.py** - Generates daily / weekly / monthly digests of the IRC logs (DeepSeek via OpenRouter by default). Daily summaries follow posted links to call out manuscripts (title/link/importance) and flag technical discussions; weekly consolidates its 7 days; monthly consolidates its overlapping ISO weeks. Canonical summaries are cached under `data/summaries/{daily,weekly,monthly}/` and published/uploaded like other commands.
 
 ### 3. Core (`core/`)
 
@@ -221,10 +223,19 @@ def generate_search_query(prompt_fragment: str, model: str, for_mycollection: bo
 - **Commands**: `grg-collect`, `grg-query`
 - **Config file**: `data/grg_collection.json`
 
+### chat summaries (daily / weekly / monthly)
+- **Source**: hplusroadmap IRC logs in `data/raw/` (auto-downloaded if missing)
+- **Commands**: `summarize-day`, `summarize-week`, `summarize-month`, `generate-summary-index`
+- **Model**: DeepSeek via OpenRouter by default (`--model` to override)
+- **Output**: cached under `data/summaries/{daily,weekly,monthly}/`; published + uploaded to the remote `chatsummaries/` directory
+- **Index**: `generate-summary-index` writes `data/summaries/index.html` with sortable list, calendar, and missing-summary views, then uploads it to the remote `chatsummaries/` directory by default
+- **Link following**: requires the Node `mdream` package (installed locally under `hpluslogs/node_modules`, pinned in `package.json`) plus its platform-specific native binding; if `mdream`/Node is unavailable it falls back to regex HTML text extraction
+
 ## Environment Variables
 
 - `OPENROUTER_API_KEY` - Required for embeddings and LLM calls
 - `XAI_API_KEY` - Required for xAI Collections
+- `MDREAM_BIN` - Optional path to the `mdream` binary used for HTML→markdown link conversion (defaults to the local `node_modules/.bin/mdream` or one on `PATH`)
 
 ## Running the CLI
 
@@ -246,8 +257,22 @@ python -m hpluslogs.cli xai-upload
 
 # Query xAI Collections
 python -m hpluslogs.cli xai-query "What is CRISPR?"
+
+# Summarize a single day (calls out posted manuscripts, follows links)
+python -m hpluslogs.cli summarize-day --date 2026-04-20
+
+# Summarize a range of days
+python -m hpluslogs.cli summarize-day --start 2026-04-01 --end 2026-04-07
+
+# Weekly digest for the ISO week containing a date (auto-generates missing dailies)
+python -m hpluslogs.cli summarize-week --date 2026-04-20
+
+# Monthly digest (auto-generates missing weeklies/dailies)
+python -m hpluslogs.cli summarize-month --month 2026-04
+
+# Static index of generated daily / weekly / monthly summaries
+python -m hpluslogs.cli generate-summary-index
 ```
 
 /add hpluslogs/cli.py hpluslogs/integrations/xai.py hpluslogs/services/xai_upload.py hpluslogs/docs/repo.md hpluslogs/docs/xai.txt
-
 
