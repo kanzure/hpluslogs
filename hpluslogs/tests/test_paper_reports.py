@@ -62,9 +62,10 @@ class PaperReportTest(unittest.TestCase):
             self.assertNotIn('answer', saved)
 
     def test_retrieval_only_does_not_call_model(self):
-        with patch.object(pc, 'retrieve', return_value=self.passages), patch.object(pc, 'answer') as answer:
-            result = CliRunner().invoke(cli, ['--data-dir', str(self.root), 'papers-chroma-query', '--nollm', 'q'])
+        with patch.object(pc, 'retrieve', return_value=self.passages) as retrieve, patch.object(pc, 'answer') as answer:
+            result = CliRunner().invoke(cli, ['--data-dir', str(self.root), 'papers-chroma-query', '--nollm', '--top-k', '300', 'q'])
         self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(retrieve.call_args.args[-1], 300)
         answer.assert_not_called()
 
     def test_cli_saves_generation_settings(self):

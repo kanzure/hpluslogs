@@ -130,13 +130,13 @@ class PaperResultsTest(unittest.TestCase):
         question = "barcodes; $(do-not-execute) 'quotes'"
         with patch.object(Remote, 'command', return_value=SimpleNamespace(stdout=json.dumps(self.result))) as remote:
             result = CliRunner().invoke(self.cli, ['papers-remote-query', '--host', 'worker.local',
-                '--user', 'user', '--path', '/srv/papers', '--model', 'local-model', '--top-k', '100',
+                '--user', 'user', '--path', '/srv/papers', '--model', 'local-model', '--top-k', '300',
                 '--output-name', 'barcodes', '--no-upload', question], obj={'data_dir':self.root})
         self.assertEqual(result.exit_code, 0, result.output)
         args = remote.call_args.args
         self.assertEqual(args[-2:], ('--', question))
         self.assertEqual(args[args.index('--model')+1], 'local-model')
-        self.assertEqual(args[args.index('--top-k')+1], '100')
+        self.assertEqual(args[args.index('--top-k')+1], '300')
         self.assertTrue((self.root/'outputs/barcodes.html').is_file())
 
     def test_missing_pandoc_fails_before_remote_model_call(self):

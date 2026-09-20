@@ -46,7 +46,8 @@ def register(cli):
     @cli.command('papers-chroma-query')
     @connection_options
     @click.argument('question')
-    @click.option('--top-k', type=click.IntRange(1,100), default=8)
+    @click.option('--top-k', type=click.IntRange(min=1), default=8,
+                  help='Maximum retrieved passages; limited by available matches, not a fixed CLI cap.')
     @click.option('--nollm', is_flag=True, help='Return source passages without generating an answer.')
     @click.option('--llm-url', default='http://127.0.0.1:8080/v1', envvar='PAPERS_LLM_URL')
     @click.option('--model', default=None, envvar='PAPERS_LLM_MODEL', help='Served model name; required unless --nollm.')
