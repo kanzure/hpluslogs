@@ -73,7 +73,8 @@ def snapshot(source, destination):
 def build_context(destination):
     project = Path(__file__).resolve().parents[1]
     for relative in ['conversion_cli.py', 'services/papers.py', 'services/papers_markdown.py',
-                     'services/papers_progress.py', 'services/paper_conversion_worker.py', 'services/papers_failures.py', 'integrations/xai.py']:
+                     'services/papers_progress.py', 'services/paper_conversion_worker.py', 'services/papers_failures.py',
+                     'services/papers_repair.py', 'integrations/xai.py']:
         target = destination / 'hpluslogs' / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(project / relative, target)

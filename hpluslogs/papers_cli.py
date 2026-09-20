@@ -62,6 +62,17 @@ def register(cli):
         """Convert PDFs locally with PyMuPDF4LLM; never call xAI."""
         papers_markdown.convert(obj['data_dir'], workers, timeout, limit)
 
+    @cli.command('papers-repair')
+    @click.option('--workers', type=click.IntRange(min=1), default=8)
+    @click.option('--timeout', type=click.IntRange(min=1), default=1800)
+    @click.option('--limit', type=click.IntRange(min=1))
+    @click.option('--apply', is_flag=True, help='Repair selected outputs; otherwise report candidates only.')
+    @click.pass_obj
+    def repair_cmd(obj, **kwargs):
+        """Recover garbled Markdown and readable failed PDFs using local OCR."""
+        from hpluslogs.services.papers_repair import repair
+        repair(obj['data_dir'], **kwargs)
+
     @cli.command('papers-prepare')
     @click.option('--workers', type=click.IntRange(min=1), default=2, show_default=True)
     @click.option('--timeout', type=click.IntRange(min=1), default=600)

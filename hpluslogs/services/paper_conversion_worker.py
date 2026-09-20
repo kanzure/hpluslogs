@@ -138,6 +138,34 @@ def convert_with_page_cache(source, source_path, cache_root, expected_sha, setti
         return cached_markdown(document, cache_root/cache_key, render)
 
 
+def raster_ocr(source_path, cache_root, expected_sha):
+    """Replace broken font mappings with OCR of rendered pages; checkpoint each page."""
+    import pymupdf
+    import pymupdf4llm
+    from pymupdf4llm.ocr import OCRMode
+    raw = source_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha:
+        raise ValueError('PDF changed before OCR recovery.')
+    tessdata = Path(pymupdf.get_tessdata())/'eng.traineddata'
+    key = hashlib.sha256((expected_sha+hashlib.sha256(tessdata.read_bytes()).hexdigest()
+                          + ':raster-ocr-200-v1').encode()).hexdigest()
+    def render(document, pages, **kwargs):
+        with pymupdf.open() as raster:
+            for number in pages:
+                page = document[number]
+                pixmap = page.get_pixmap(dpi=200, alpha=False)
+                target = raster.new_page(width=page.rect.width, height=page.rect.height)
+                target.insert_image(target.rect, pixmap=pixmap)
+            text = pymupdf4llm.to_markdown(raster, header=False, footer=False,
+                                          use_ocr=OCRMode.FORCE_DROP_OLD)
+        render.last_parser = 'raster-ocr-200-v1'
+        text = normalize_unicode(text)
+        render.last_unicode_repairs = render_markdown.last_unicode_repairs
+        return text
+    with pymupdf.open(stream=raw, filetype='pdf') as document:
+        return cached_markdown(document, cache_root/key, render, page_size=1)
+
+
 def main():
     USED_PARSERS.clear()
     UNICODE_REPAIRS.clear()
@@ -150,7 +178,9 @@ def main():
         # Python can open them losslessly; keep the same document parser.
         import pymupdf
         source = pymupdf.open(stream=Path(source).read_bytes(), filetype='pdf')
-    if len(sys.argv) > 3:
+    if os.environ.get('PAPERS_PARSER') == 'raster-ocr':
+        markdown = raster_ocr(Path(sys.argv[1]), Path(sys.argv[3]), sys.argv[4])
+    elif len(sys.argv) > 3:
         markdown = convert_with_page_cache(source, Path(sys.argv[1]), Path(sys.argv[3]), sys.argv[4], sys.argv[5], render_markdown)
     else:
         markdown = render_markdown(source, header=False, footer=False)

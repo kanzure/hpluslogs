@@ -33,6 +33,18 @@ def progress(data_dir, **kwargs):
 
 
 @cli.command()
+@click.option('--workers', type=click.IntRange(min=1), default=8)
+@click.option('--timeout', type=click.IntRange(min=1), default=1800)
+@click.option('--limit', type=click.IntRange(min=1))
+@click.option('--apply', is_flag=True, help='Repair selected outputs; otherwise report candidates only.')
+@click.pass_obj
+def repair(data_dir, **kwargs):
+    """Recover garbled Markdown and readable failed PDFs using local OCR."""
+    from hpluslogs.services.papers_repair import repair as run
+    run(data_dir, **kwargs)
+
+
+@cli.command()
 @click.pass_obj
 def failures(data_dir):
     """Classify failed PDFs; distinguish damaged inputs from extraction failures."""
