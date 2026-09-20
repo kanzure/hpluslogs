@@ -289,3 +289,10 @@ a quick size-based estimate; `papers-cost` remains the hash-verified upload gate
 `--days`, `--searches`, and `--index-multiplier` control the estimate assumptions.
 
 Invocations: [papers2-commands.md](papers2-commands.md).
+
+
+## Reference documents
+
+- [Operations, progress/ETA, next steps, uploads and queries](papers2-commands.md)
+- [Saved xAI rates, estimates and budget scenarios](papers2-xai-costs.md)
+- [Local Chroma RAM estimate and recalculation](papers2-chroma-sizing.md)
