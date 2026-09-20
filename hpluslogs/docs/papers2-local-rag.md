@@ -119,6 +119,16 @@ Uses 100 passages by default. Prints public HTML and Markdown URLs when uploadin
 finishes. Saves answer/context files in `hpluslogs/data/outputs/` with unique
 timestamp names. Transfer route: query worker → this machine → publishing host.
 
+```bash
+PAPERS_TOP_K=300 hpluslogs/papers-query 'microfluidics and microchannels for the manipulation of single cells or embryos or viruses'
+```
+
+`PAPERS_TOP_K` / `--top-k` accepts any positive integer. It counts passages, not
+whole papers; retrieval retains at most two passages per paper from the nearest
+`5 × top-k` candidates, so fewer matches can be returned after filtering.
+Higher values increase LLM input size and latency; excerpts plus the report must
+fit the served model's context window. `--nollm` allows retrieval without generation.
+
 Default LLM pass: extensive technical report covering mechanisms, evidence and
 comparisons, limitations, speculative research ideas, references and named entities.
 Claims cite retrieved excerpts; speculation is labeled. Output budget: 8,192 tokens
