@@ -14,7 +14,10 @@ def connection_options(fn):
 def register(cli):
     @cli.command('papers-chroma-index')
     @connection_options
-    @click.option('--workers', type=click.IntRange(1,64), default=4)
+    @click.option('--concurrency', '--workers', type=click.IntRange(1,256), default=80, show_default=True)
+    @click.option('--batch-size', type=click.IntRange(1,1000), default=1000, show_default=True)
+    @click.option('--cost-limit', type=click.FloatRange(min=0,min_open=True), default=5.0, show_default=True)
+    @click.option('--limit', type=click.IntRange(1), default=None, help='Limit pending papers for a smoke test.')
     @click.option('--watch', is_flag=True, help='Continuously index newly completed Markdown.')
     @click.option('--interval', type=click.IntRange(10), default=120)
     @click.pass_obj

@@ -1,5 +1,5 @@
-"""Incremental, local CPU embeddings and Chroma retrieval for converted papers."""
-from concurrent.futures import ThreadPoolExecutor
+"""Incremental OpenRouter Qwen embeddings and local Chroma paper retrieval."""
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
 from functools import lru_cache
 import fcntl
@@ -11,9 +11,10 @@ import time
 from urllib.parse import unquote
 
 import click
+from hpluslogs.services.paper_embeddings import Encoder, BudgetExceeded, usage
 
-RECIPE = 'minilm-l6-v2-384-wordpiece224-overlap32-v1'
-COLLECTION = 'papers2_minilm_v1'
+RECIPE = 'qwen3-embedding-8b-4096-o200k175-overlap20-v1'
+COLLECTION = 'papers2_qwen3_8b_4096_v1'
 BASE_URL = 'https://diyhpl.us/~bryan/papers2/'
 
 
@@ -37,7 +38,7 @@ def checkpoint(data_dir):
     return db
 
 
-def chunks(text, tokenizer, size=224, overlap=32):
+def chunks(text, tokenizer, size=175, overlap=20):
     """Slice original text at model-token offsets; retain Markdown and citations."""
     if not 0 <= overlap < size <= 250:
         raise ValueError('Require 0 <= overlap < size <= 250.')
@@ -52,32 +53,13 @@ def chunks(text, tokenizer, size=224, overlap=32):
             break
 
 
-class Encoder:
-    def __init__(self):
-        from hpluslogs.services.paper_conversion_worker import configure_inference_threads
-        from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
-        from tokenizers import Tokenizer
-        configure_inference_threads(1)
-        self.function = ONNXMiniLM_L6_V2(preferred_providers=['CPUExecutionProvider'])
-        self.function(['Initialize embedding model.'])
-        self.tokenizer = Tokenizer.from_str(self.function.tokenizer.to_str())
-        self.tokenizer.no_padding()
-        self.tokenizer.no_truncation()
-
-    def embed(self, texts):
-        # Guard against accidental model-side truncation if chunking changes.
-        if any(len(self.tokenizer.encode(t).ids) > 256 for t in texts):
-            raise ValueError('Passage exceeds embedding model context.')
-        return self.function(texts)
-
-
 def collection(host, port, create=False):
     import chromadb
     from chromadb.config import Settings
     client = chromadb.HttpClient(host=host, port=port, settings=Settings(anonymized_telemetry=False))
     if create:
         result = client.get_or_create_collection(COLLECTION, embedding_function=None,
-            metadata={'recipe': RECIPE}, configuration={'hnsw': {'space': 'cosine', 'num_threads': 4}})
+            metadata={'recipe': RECIPE}, configuration={'hnsw': {'space': 'cosine', 'num_threads': 16}})
     else:
         result = client.get_collection(COLLECTION, embedding_function=None)
     if result.metadata.get('recipe') != RECIPE:
@@ -85,7 +67,7 @@ def collection(host, port, create=False):
     return result
 
 
-def index_document(data_dir, coll, encoder, row, batch_size=32):
+def index_document(data_dir, coll, encoder, row, batch_size=1000):
     paper = row['pdf_path']
     key = digest(paper)
     revision = digest(RECIPE + row['markdown_sha256'])
@@ -103,7 +85,11 @@ def index_document(data_dir, coll, encoder, row, batch_size=32):
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != row['markdown_sha256']:
             raise ValueError('Markdown changed since conversion checkpoint; retry after conversion completes.')
-        pieces = list(chunks(raw.decode('utf-8'), encoder.tokenizer))
+        text = raw.decode('utf-8')
+        suspect = sum((ord(c)<32 and c not in '\n\r\t') or 127<=ord(c)<=159 or c=='\ufffd' for c in text)
+        if suspect >= 32 and suspect/max(1,len(text)) > 0.01:
+            raise ValueError('Markdown encoding quality check failed; repair PDF extraction before paid embedding.')
+        pieces = list(chunks(text, encoder.tokenizer))
         if not pieces:
             raise ValueError('No embeddable text.')
         offset = 0
@@ -119,9 +105,12 @@ def index_document(data_dir, coll, encoder, row, batch_size=32):
             metadata = [{'paper_key': key, 'pdf_path': paper, 'source_url': BASE_URL+paper,
                          'revision': revision, 'chunk': start+i, 'char_start': c['start'], 'char_end': c['end']}
                         for i,c in enumerate(group)]
-            coll.upsert(ids=ids, embeddings=encoder.embed(texts), documents=texts, metadatas=metadata)
+            cache_key = cid+':'+ids[0]
+            coll.upsert(ids=ids, embeddings=encoder.embed(texts,key=cache_key), documents=texts, metadatas=metadata)
             offset = start+len(group)
             save(offset, len(pieces), 'indexing')
+            if hasattr(encoder,'forget'):
+                encoder.forget(texts,cache_key)
         save(len(pieces), len(pieces), 'ready')
         return 'indexed'
     except Exception as error:
@@ -131,12 +120,14 @@ def index_document(data_dir, coll, encoder, row, batch_size=32):
                 ON CONFLICT(collection_id,paper) DO UPDATE SET
                 state=excluded.state,error=excluded.error,updated=excluded.updated''',
                 (cid, paper, revision, 0, 0, 'failed', str(error), time.time()))
+        if isinstance(error,BudgetExceeded):
+            raise
         return 'failed: '+str(error)
     finally:
         db.close()
 
 
-def index(data_dir, host, port, workers=4, watch=False, interval=120):
+def index(data_dir, host, port, concurrency=80, batch_size=1000, cost_limit=5.0, watch=False, interval=120, limit=None):
     data_dir.mkdir(parents=True, exist_ok=True)
     with (data_dir/'papers2_chroma.lock').open('a') as lock:
         try:
@@ -144,11 +135,12 @@ def index(data_dir, host, port, workers=4, watch=False, interval=120):
         except BlockingIOError:
             raise click.ClickException('A papers Chroma indexer is already running.')
         coll = collection(host, port, create=True)
-        encoder = Encoder()
+        encoder = Encoder(data_dir,cost_limit)
         checkpoint(data_dir).close()
         with checkpoint(data_dir) as db:
             baseline = db.execute("SELECT count(*) FROM indexed WHERE collection_id=? AND state='ready'", (str(coll.id),)).fetchone()[0]
-        run = {'started': time.time(), 'workers': workers, 'collection_id': str(coll.id),
+        run = {'started': time.time(), 'concurrency': concurrency, 'batch_size': batch_size,
+               'cost_limit':cost_limit, 'collection_id': str(coll.id),
                'initial_ready': baseline, 'initial_chunks': coll.count()}
         run_path = data_dir/'papers2_chroma_run.json'
         temporary = run_path.with_suffix('.tmp')
@@ -160,13 +152,19 @@ def index(data_dir, host, port, workers=4, watch=False, interval=120):
                 done = {r['paper']: r['revision'] for r in db.execute(
                     "SELECT paper,revision FROM indexed WHERE collection_id=? AND state='ready'", (str(coll.id),))}
             pending = [r for r in rows if done.get(r['pdf_path']) != digest(RECIPE+r['markdown_sha256'])]
+            if limit is not None:
+                pending = pending[:limit]
             click.echo(json.dumps({'ready_markdown': len(rows), 'pending_papers': len(pending), 'chunks': coll.count()}))
-            with ThreadPoolExecutor(max_workers=workers) as pool:
+            pool = ThreadPoolExecutor(max_workers=concurrency)
+            try:
                 def work(row):
-                    result = index_document(data_dir, coll, encoder, row)
+                    result = index_document(data_dir, coll, encoder, row,batch_size)
                     click.echo(json.dumps({'paper': row['pdf_path'], 'result': result}))
                     return result
-                results = list(pool.map(work, pending))
+                futures = [pool.submit(work,row) for row in pending]
+                results = [future.result() for future in as_completed(futures)]
+            finally:
+                pool.shutdown(wait=True,cancel_futures=True)
             click.echo(json.dumps(status(data_dir, host, port)))
             if not watch:
                 if any(r.startswith('failed') for r in results):
@@ -183,7 +181,8 @@ def status(data_dir, host, port):
         failures = [dict(r) for r in db.execute("SELECT paper,error FROM indexed WHERE collection_id=? AND state='failed' LIMIT 10", (str(coll.id),))]
     ready_markdown = len(source_rows(data_dir))
     result = {'collection': COLLECTION, 'recipe': RECIPE, 'papers': counts, 'chunks': coll.count(),
-              'checkpointed_chunks': completed_chunks, 'ready_markdown': ready_markdown, 'failures': failures}
+              'checkpointed_chunks': completed_chunks, 'ready_markdown': ready_markdown, 'failures': failures,
+              'embedding_usage':usage(data_dir)}
     run_path = data_dir/'papers2_chroma_run.json'
     if run_path.exists():
         run = json.loads(run_path.read_text())
@@ -201,8 +200,9 @@ def retrieve(data_dir, host, port, query, top_k=8):
     coll = collection(host, port)
     if not coll.count():
         return []
-    encoder = Encoder()
-    result = coll.query(query_embeddings=encoder.embed([query]), n_results=min(coll.count(), top_k*5),
+    encoder = Encoder(data_dir)
+    instruction = 'Instruct: Given a scientific question, retrieve relevant paper passages that answer it.\nQuery: '+query
+    result = coll.query(query_embeddings=encoder.embed([instruction]), n_results=min(coll.count(), top_k*5),
                         include=['documents','metadatas','distances'])
     current = {r['pdf_path']: digest(RECIPE+r['markdown_sha256']) for r in source_rows(data_dir)}
     passages, seen = [], {}

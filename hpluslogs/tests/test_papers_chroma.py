@@ -14,7 +14,7 @@ class Tokenizer:
 
 class Encoder:
     tokenizer = Tokenizer()
-    def embed(self,texts):
+    def embed(self,texts,**kwargs):
         return [[1.,0.] for _ in texts]
 
 
@@ -57,7 +57,7 @@ class ChromaTest(unittest.TestCase):
         self.assertEqual(pieces[0]['start'],0)
         self.assertEqual(pieces[-1]['end'],len(text))
         for a,b in zip(pieces,pieces[1:]):
-            self.assertEqual(a['end']-b['start'],32)
+            self.assertEqual(a['end']-b['start'],20)
         self.assertTrue(all(p['content']==text[p['start']:p['end']] for p in pieces))
     def test_resume_replacement_and_collection_recreation(self):
         row=self.row('abc '*600)
@@ -84,6 +84,13 @@ class ChromaTest(unittest.TestCase):
         self.assertFalse(self.coll.docs)
         with pc.checkpoint(self.data) as db:
             self.assertEqual(db.execute('SELECT state FROM indexed').fetchone()[0], 'failed')
+
+    def test_corrupted_encoding_is_rejected_before_paid_embedding(self):
+        row=self.row('Unreadable '+ '\ufffd'*100)
+        with patch.object(self.enc,'embed') as embed:
+            result=pc.index_document(self.data,self.coll,self.enc,row)
+        self.assertIn('encoding quality',result)
+        embed.assert_not_called()
 
     def test_audit_detects_missing_and_corrupted_passages(self):
         row=self.row('Verified text '*100)
