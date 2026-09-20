@@ -16,6 +16,9 @@ Optional environment overrides:
   PAPERS_TOP_K=100           Number of retrieved passages (1-100)
   PAPERS_OUTPUT_NAME=name    Filename without extension (default: timestamp)
   PAPERS_LLM_MODEL=model    Worker model name
+  PAPERS_PROMPT_FRAGMENT='Compare methods and suggest experiments'
+  PAPERS_BRIEF=1             Concise answer instead of the default technical report
+  PAPERS_MAX_ANSWER_TOKENS=8192  Override report output token limit
 HELP
     exit 0
 fi
@@ -42,12 +45,20 @@ if [[ ! -x "$python" ]]; then
     exit 2
 fi
 name="${PAPERS_OUTPUT_NAME:-papers_$(date -u +%Y%m%dT%H%M%S_%N)}"
+analysis_options=(--prompt-fragment "${PAPERS_PROMPT_FRAGMENT:-}")
+if [[ "${PAPERS_BRIEF:-0}" == 1 ]]; then
+    analysis_options+=(--brief)
+fi
+if [[ -n "${PAPERS_MAX_ANSWER_TOKENS:-}" ]]; then
+    analysis_options+=(--max-answer-tokens "$PAPERS_MAX_ANSWER_TOKENS")
+fi
 cd "$project_dir/.."
 "$python" -m hpluslogs.cli --data-dir "${PAPERS_DATA_DIR:-$project_dir/data}" papers-remote-query \
     --host "$PAPERS_HOST" --user "$PAPERS_USER" --path "$PAPERS_PATH" \
     --model "$PAPERS_LLM_MODEL" --llm-url "${PAPERS_LLM_URL:-http://127.0.0.1:8080/v1}" \
     --chroma-port "${PAPERS_CHROMA_PORT:-18081}" --top-k "${PAPERS_TOP_K:-100}" \
     --output-name "$name" --upload \
+    "${analysis_options[@]}" \
     --remote-user "${PAPERS_PUBLISH_USER:-bryan}" --remote-host "${PAPERS_PUBLISH_HOST:-gnusha.org}" \
     --remote-path "${PAPERS_PUBLISH_PATH:-~/public_html/irc/chatgpt/papers2/}" \
     -- "$1"

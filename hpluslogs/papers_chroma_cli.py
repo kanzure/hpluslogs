@@ -51,8 +51,13 @@ def register(cli):
     @click.option('--llm-url', default='http://127.0.0.1:8080/v1', envvar='PAPERS_LLM_URL')
     @click.option('--model', default=None, envvar='PAPERS_LLM_MODEL', help='Served model name; required unless --nollm.')
     @click.option('--output-name', default=None)
+    @click.option('--brief', is_flag=True, help='Generate a concise answer instead of a technical report.')
+    @click.option('--prompt-fragment', default='', help='Additional report instructions; does not change retrieval.')
+    @click.option('--max-answer-tokens', type=click.IntRange(1, 32768), default=None,
+                  help='Output token limit: 8192 for reports, 1800 for brief answers.')
     @click.pass_obj
-    def query_cmd(obj, chroma_host, chroma_port, question, top_k, nollm, llm_url, model, output_name):
+    def query_cmd(obj, chroma_host, chroma_port, question, top_k, nollm, llm_url, model, output_name,
+                  brief, prompt_fragment, max_answer_tokens):
         if not nollm and not model:
             raise click.UsageError('Supply --model or use --nollm.')
         name = output_name or datetime.datetime.now(datetime.timezone.utc).strftime('local_%Y%m%dT%H%M%S_%f')
@@ -60,11 +65,16 @@ def register(cli):
             raise click.BadParameter('--output-name must be a filename.')
         passages = papers_chroma.retrieve(obj['data_dir'], chroma_host, chroma_port, question, top_k)
         result = {'question': question, 'collection': papers_chroma.COLLECTION, 'passages': passages}
-        if passages and not nollm:
-            result['answer'] = papers_chroma.answer(question, passages, llm_url, model)
         dest = obj['data_dir']/'papers2_local_queries'
         dest.mkdir(parents=True, exist_ok=True)
-        (dest/(name+'.json')).write_text(json.dumps(result, indent=2), encoding='utf-8')
+        saved = dest/(name+'.json')
+        saved.write_text(json.dumps(result, indent=2), encoding='utf-8')
+        if passages and not nollm:
+            result['answer'] = papers_chroma.answer(question, passages, llm_url, model,
+                brief=brief, prompt_fragment=prompt_fragment, max_answer_tokens=max_answer_tokens)
+            result['generation'] = {'mode': 'brief' if brief else 'report', 'model': model,
+                'prompt_fragment': prompt_fragment, 'max_answer_tokens': max_answer_tokens or (1800 if brief else 8192)}
+            saved.write_text(json.dumps(result, indent=2), encoding='utf-8')
         click.echo(json.dumps(result, indent=2))
 
 

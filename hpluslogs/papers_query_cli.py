@@ -38,10 +38,13 @@ def register(cli):
     @click.option('--model', default=None, envvar='PAPERS_LLM_MODEL')
     @click.option('--llm-url', default='http://127.0.0.1:8080/v1', envvar='PAPERS_LLM_URL')
     @click.option('--chroma-port', type=click.IntRange(1, 65535), default=18081)
+    @click.option('--brief', is_flag=True, help='Generate a concise answer instead of a technical report.')
+    @click.option('--prompt-fragment', default='', help='Additional report instructions; does not change retrieval.')
+    @click.option('--max-answer-tokens', type=click.IntRange(1, 32768), default=None)
     @publishing_options
     @click.pass_obj
     def query(obj, host, user, path, question, top_k, nollm, model, llm_url,
-              chroma_port, output_name, **options):
+              chroma_port, output_name, brief, prompt_fragment, max_answer_tokens, **options):
         """Query remote Chroma/LLM, then save Markdown/HTML and publish from here."""
         if not nollm and not model:
             raise click.UsageError('Supply --model or use --nollm.')
@@ -52,11 +55,19 @@ def register(cli):
                    'hpluslogs.papers_chroma_cli', 'papers-chroma-query', '--top-k', str(top_k),
                    '--chroma-port', str(chroma_port), '--llm-url', llm_url, '--output-name', name]
         command += ['--nollm'] if nollm else ['--model', model]
+        if brief:
+            command += ['--brief']
+        if prompt_fragment:
+            command += ['--prompt-fragment', prompt_fragment]
+        if max_answer_tokens is not None:
+            command += ['--max-answer-tokens', str(max_answer_tokens)]
         try:
             # Remote.command quotes each argument; the question is never shell code.
             completed = remote.command(*command, '--', question, capture=True)
             result = paper_results.validate_result(json.loads(completed.stdout))
-        except (subprocess.CalledProcessError, OSError, ValueError) as error:
+        except subprocess.CalledProcessError as error:
+            raise click.ClickException(f'Remote paper query failed: {error.stderr or error}') from error
+        except (OSError, ValueError) as error:
             raise click.ClickException(f'Remote paper query failed: {error}') from error
         report = paper_results.publish_result(obj['data_dir'], result, name, **options)
         show_outputs(result, report)

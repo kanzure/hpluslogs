@@ -23,7 +23,7 @@ def deploy(remote, port=18081, concurrency=80, batch_size=1000, cost_limit=5.0,
         remote.command('test','-f',env_file)
     with tempfile.TemporaryDirectory(prefix='papers-chroma-build-') as tmp:
         root = Path(tmp)
-        for relative in ['papers_chroma_cli.py','services/papers_chroma.py','services/paper_embeddings.py','integrations/openrouter.py']:
+        for relative in ['papers_chroma_cli.py','services/papers_chroma.py','services/paper_embeddings.py','integrations/openrouter.py','core/paper_prompts.py']:
             target = root/'hpluslogs'/relative
             target.parent.mkdir(parents=True,exist_ok=True)
             shutil.copy2(project/relative,target)
