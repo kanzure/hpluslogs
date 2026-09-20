@@ -106,7 +106,33 @@ Generate `data/papers2_usable_token_estimate.json` using the invocation in
 [papers2-openrouter-costs.md](papers2-openrouter-costs.md). Stale size/count scopes
 are rejected; paper-count ETA remains available separately.
 
-## Query, summarize, render Markdown/HTML and upload
+## One command: query, summarize and publish
+
+Run from this repository on your local machine. Settings are already configured
+here in `hpluslogs/.papers-query.env`; no virtualenv activation needed.
+
+```bash
+hpluslogs/papers-query 'genetic barcodes and barcoding'
+```
+
+Uses 100 passages by default. Prints public HTML and Markdown URLs when uploading
+finishes. Saves answer/context files in `hpluslogs/data/outputs/` with unique
+timestamp names. Transfer route: query worker → this machine → publishing host.
+
+```bash
+# Optional name and retrieval limit:
+PAPERS_OUTPUT_NAME=mitochondria-aging PAPERS_TOP_K=20 \
+  hpluslogs/papers-query 'How do mitochondria contribute to aging?'
+
+# First-time setup on another machine; edit worker/model settings:
+cp hpluslogs/.papers-query.env.example hpluslogs/.papers-query.env
+${EDITOR:-vi} hpluslogs/.papers-query.env
+```
+
+The script and example are committed; machine-specific settings are ignored by Git.
+Requires `hpluslogs/venv`, local Pandoc, and SSH access to both hosts.
+
+## Full CLI: query, summarize, render Markdown/HTML and upload
 
 Run locally from this repository; requires local Pandoc and SSH access to both
 the query worker and publishing host. No container rebuild or SSH tunnel needed.
