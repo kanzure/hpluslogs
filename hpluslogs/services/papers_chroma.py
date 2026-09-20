@@ -16,6 +16,12 @@ from hpluslogs.services.paper_embeddings import Encoder, BudgetExceeded, usage
 RECIPE = 'qwen3-embedding-8b-4096-o200k175-overlap20-v1'
 COLLECTION = 'papers2_qwen3_8b_4096_v1'
 BASE_URL = 'https://diyhpl.us/~bryan/papers2/'
+QUALITY_ERROR = 'Markdown encoding quality check failed; repair PDF extraction before paid embedding.'
+
+
+def unreadable_text(text):
+    suspect = sum((ord(c)<32 and c not in '\n\r\t') or 127<=ord(c)<=159 or c=='\ufffd' for c in text)
+    return suspect >= 32 and suspect/max(1,len(text)) > 0.01
 
 
 def digest(text):
@@ -86,9 +92,8 @@ def index_document(data_dir, coll, encoder, row, batch_size=1000):
         if hashlib.sha256(raw).hexdigest() != row['markdown_sha256']:
             raise ValueError('Markdown changed since conversion checkpoint; retry after conversion completes.')
         text = raw.decode('utf-8')
-        suspect = sum((ord(c)<32 and c not in '\n\r\t') or 127<=ord(c)<=159 or c=='\ufffd' for c in text)
-        if suspect >= 32 and suspect/max(1,len(text)) > 0.01:
-            raise ValueError('Markdown encoding quality check failed; repair PDF extraction before paid embedding.')
+        if unreadable_text(text):
+            raise ValueError(QUALITY_ERROR)
         pieces = list(chunks(text, encoder.tokenizer))
         if not pieces:
             raise ValueError('No embeddable text.')
@@ -179,10 +184,14 @@ def status(data_dir, host, port):
         counts = dict(db.execute('SELECT state,count(*) FROM indexed WHERE collection_id=? GROUP BY state', (str(coll.id),)))
         completed_chunks = db.execute('SELECT coalesce(sum(next_chunk),0) FROM indexed WHERE collection_id=?', (str(coll.id),)).fetchone()[0]
         failures = [dict(r) for r in db.execute("SELECT paper,error FROM indexed WHERE collection_id=? AND state='failed' LIMIT 10", (str(coll.id),))]
+        skipped = db.execute("SELECT count(*) FROM indexed WHERE collection_id=? AND state='failed' AND error=?",
+                             (str(coll.id), QUALITY_ERROR)).fetchone()[0]
     ready_markdown = len(source_rows(data_dir))
     result = {'collection': COLLECTION, 'recipe': RECIPE, 'papers': counts, 'chunks': coll.count(),
               'checkpointed_chunks': completed_chunks, 'ready_markdown': ready_markdown, 'failures': failures,
               'embedding_usage':usage(data_dir)}
+    result['skipped_unreadable_markdown'] = skipped
+    result['retryable_or_other_failures'] = counts.get('failed', 0)-skipped
     run_path = data_dir/'papers2_chroma_run.json'
     if run_path.exists():
         run = json.loads(run_path.read_text())
@@ -191,8 +200,8 @@ def status(data_dir, host, port):
             rate = max(0, counts.get('ready',0)-run['initial_ready'])/elapsed*3600 if elapsed >= 60 else 0
             result['run'] = run
             result['papers_per_hour'] = rate
-            result['current_markdown_backlog_eta_hours'] = max(0,ready_markdown-counts.get('ready',0))/rate if rate else None
-            result['eta_caveat'] = 'Extrapolated current Markdown backlog only; excludes future conversions and failure repair. Paper sizes vary.'
+            result['current_markdown_backlog_eta_hours'] = max(0,ready_markdown-counts.get('ready',0)-skipped)/rate if rate else None
+            result['eta_caveat'] = 'Extrapolated current Markdown backlog, excluding known unreadable skips; excludes future conversions and failure repair. Paper sizes vary.'
     return result
 
 
@@ -262,9 +271,12 @@ def audit(data_dir, host, port, page_size=500):
             raise ValueError('Markdown digest differs from conversion checkpoint')
         return raw.decode('utf-8')
     expected_total = 0
+    skipped = []
     for paper, row in sources.items():
         try:
-            markdown(paper)
+            if unreadable_text(markdown(paper)):
+                skipped.append(paper)
+                continue
         except (OSError, ValueError) as error:
             problem(f'{paper}: {error}')
         record = records.get(paper)
@@ -274,6 +286,7 @@ def audit(data_dir, host, port, page_size=500):
             problem(f'{paper}: missing, incomplete or stale indexing checkpoint')
         else:
             expected_total += record['total']
+    skipped_set = set(skipped)
     seen = set()
     per_paper = Counter()
     offset = 0
@@ -286,6 +299,8 @@ def audit(data_dir, host, port, page_size=500):
             checked += 1
             try:
                 paper = meta['pdf_path']
+                if paper in skipped_set:
+                    raise ValueError('Skipped unreadable paper still has stored vectors')
                 row = sources[paper]
                 rev = digest(RECIPE+row['markdown_sha256'])
                 key = digest(paper)
@@ -317,8 +332,10 @@ def audit(data_dir, host, port, page_size=500):
         problem('Source/index changed during audit; stop the writers and audit again')
     if checked != expected_total or before != expected_total:
         problem('Stored total differs from complete current checkpoints')
-    return {'all_ready_markdown_verified': not error_count and bool(sources),
+    return {'all_ready_markdown_verified': not error_count and bool(sources) and not skipped,
+            'all_eligible_markdown_verified': not error_count and len(sources) > len(skipped),
+            'skipped_unreadable_markdown': skipped,
             'ready_markdown': len(sources), 'expected_chunks': expected_total,
             'checked_chunks': checked, 'stable_snapshot': stable,
             'error_count': error_count, 'errors': errors,
-            'scope': 'Current ready Markdown only; conversion failures and pending PDFs require separate review.'}
+            'scope': 'Current usable Markdown; encoding-quality exclusions listed explicitly. Conversion failures and pending PDFs require separate review.'}

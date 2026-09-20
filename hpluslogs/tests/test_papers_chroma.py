@@ -120,6 +120,22 @@ class ChromaTest(unittest.TestCase):
             self.assertFalse(report['all_ready_markdown_verified'])
             self.assertTrue(any('digest differs' in e for e in report['errors']))
 
+    def test_audit_reports_explicit_unreadable_exclusions_without_ignoring_missing_good_papers(self):
+        good = self.row('Verified text')
+        pc.index_document(self.data,self.coll,self.enc,good)
+        text = '\ufffd'*100
+        (self.data/'papers2_markdown'/'bad.md').write_text(text)
+        bad = {'pdf_path':'bad.pdf', 'markdown_path':'bad.md', 'markdown_sha256':pc.digest(text)}
+        pc.index_document(self.data,self.coll,self.enc,bad)
+        with patch.object(pc,'collection',return_value=self.coll), \
+             patch.object(pc,'source_rows',return_value=[good,bad]):
+            report=pc.audit(self.data,'host',18081)
+            self.assertFalse(report['all_ready_markdown_verified'])
+            self.assertTrue(report['all_eligible_markdown_verified'],report)
+            self.assertEqual(report['skipped_unreadable_markdown'],['bad.pdf'])
+            self.coll.docs.clear()
+            self.assertFalse(pc.audit(self.data,'host',18081)['all_eligible_markdown_verified'])
+
 
 if __name__=='__main__':
     unittest.main()

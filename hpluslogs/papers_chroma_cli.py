@@ -32,14 +32,15 @@ def register(cli):
 
     @cli.command('papers-chroma-audit')
     @connection_options
+    @click.option('--allow-skipped', is_flag=True, help='Permit explicitly reported unreadable Markdown exclusions.')
     @click.pass_obj
-    def audit_cmd(obj, chroma_host, chroma_port):
+    def audit_cmd(obj, chroma_host, chroma_port, allow_skipped):
         """Check every stored passage against current ready Markdown."""
         result = papers_chroma.audit(obj['data_dir'], chroma_host, chroma_port)
         path = obj['data_dir']/'papers2_chroma_audit.json'
         path.write_text(json.dumps(result, indent=2), encoding='utf-8')
         click.echo(json.dumps(result, indent=2))
-        if not result['all_ready_markdown_verified']:
+        if not result['all_eligible_markdown_verified' if allow_skipped else 'all_ready_markdown_verified']:
             raise click.ClickException('Archive audit is incomplete; inspect the saved report.')
 
     @cli.command('papers-chroma-query')

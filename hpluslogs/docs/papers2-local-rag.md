@@ -72,6 +72,17 @@ excludes PDFs still being converted and repair work.
 Indexing can catch up while conversion continues; this does not mean the entire
 PDF archive has converted. Failed PDFs require inspection and retries.
 
+## Status with explicit skipped-text counts
+
+```bash
+# Uses the latest image; does not interrupt the running indexer:
+ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data ${CHROMA_CONTAINER}:latest papers-chroma-status"
+```
+
+`skipped_unreadable_markdown`: deferred text repair. `retryable_or_other_failures`:
+API/storage/other failures, retried on subsequent watch passes. No OCR is launched
+by these commands.
+
 ## Retrieve source passages
 
 ```bash
@@ -150,15 +161,19 @@ The watcher needs the `watcher/config.json` produced by the restic handoff workf
 
 ## Verify complete Markdown indexing
 
-Run after conversion/retries finish and `papers.ready` equals `ready_markdown`.
+Run after conversion finishes and usable Markdown is indexed. With OCR deferred,
+`papers.ready + skipped_unreadable_markdown` should equal `ready_markdown`;
+retryable API failures must be resolved.
 Stop the embedding writer for a stable audit; leave the Chroma server running.
 The command verifies every passage against Markdown bytes and offsets, identities,
 source URLs and complete chunk counts. It reports incomplete coverage as failure.
-Conversion failures remain a separate check.
+Conversion failures remain a separate check. `--allow-skipped` explicitly permits
+encoding-quality exclusions, lists every excluded paper, and requires every other
+Markdown document and stored passage to pass verification.
 
 ```bash
 ssh "$PAPERS_TARGET" "docker stop ${CHROMA_CONTAINER}-index"
-ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data ${CHROMA_CONTAINER}:latest papers-chroma-audit"
+ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data ${CHROMA_CONTAINER}:latest papers-chroma-audit --allow-skipped"
 ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_chroma_audit.json'"
 ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 ```
