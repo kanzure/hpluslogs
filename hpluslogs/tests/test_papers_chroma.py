@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -59,6 +60,18 @@ class ChromaTest(unittest.TestCase):
         for a,b in zip(pieces,pieces[1:]):
             self.assertEqual(a['end']-b['start'],20)
         self.assertTrue(all(p['content']==text[p['start']:p['end']] for p in pieces))
+
+    def test_chunk_eta_accounts_for_size_and_rejects_stale_scope(self):
+        report={'projection_scope':'usable ready Markdown only','ready_markdown_count':1,
+                'skipped_unreadable_markdown':['bad.pdf'],'markdown_bytes':100,'measured_at':'now',
+                'projections':[{'chunk_size':175,'overlap':20,'dimensions':4096,'measured_chunks':1000}]}
+        (self.data/'papers2_usable_token_estimate.json').write_text(json.dumps(report))
+        rows=[{'pdf_path':'good.pdf','markdown_bytes':100},{'pdf_path':'bad.pdf','markdown_bytes':50}]
+        result=pc.chunk_eta(self.data,rows,{'initial_chunks':100},300,3600)
+        self.assertEqual(result['estimated_remaining_chunks'],700)
+        self.assertEqual(result['estimated_chunk_backlog_eta_hours'],3.5)
+        rows[0]['markdown_bytes']=101
+        self.assertNotIn('estimated_chunk_backlog_eta_hours',pc.chunk_eta(self.data,rows,{'initial_chunks':100},300,3600))
     def test_resume_replacement_and_collection_recreation(self):
         row=self.row('abc '*600)
         self.coll.fail_at=2

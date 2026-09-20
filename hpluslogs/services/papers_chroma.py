@@ -186,7 +186,8 @@ def status(data_dir, host, port):
         failures = [dict(r) for r in db.execute("SELECT paper,error FROM indexed WHERE collection_id=? AND state='failed' LIMIT 10", (str(coll.id),))]
         skipped = db.execute("SELECT count(*) FROM indexed WHERE collection_id=? AND state='failed' AND error=?",
                              (str(coll.id), QUALITY_ERROR)).fetchone()[0]
-    ready_markdown = len(source_rows(data_dir))
+    rows = source_rows(data_dir)
+    ready_markdown = len(rows)
     result = {'collection': COLLECTION, 'recipe': RECIPE, 'papers': counts, 'chunks': coll.count(),
               'checkpointed_chunks': completed_chunks, 'ready_markdown': ready_markdown, 'failures': failures,
               'embedding_usage':usage(data_dir)}
@@ -202,7 +203,34 @@ def status(data_dir, host, port):
             result['papers_per_hour'] = rate
             result['current_markdown_backlog_eta_hours'] = max(0,ready_markdown-counts.get('ready',0)-skipped)/rate if rate else None
             result['eta_caveat'] = 'Extrapolated current Markdown backlog, excluding known unreadable skips; excludes future conversions and failure repair. Paper sizes vary.'
+            result.update(chunk_eta(data_dir, rows, run, result['chunks'], elapsed))
     return result
+
+
+def chunk_eta(data_dir, rows, run, stored_chunks, elapsed):
+    """Use the offline usable-corpus measurement when it still matches this scope."""
+    path = data_dir/'papers2_usable_token_estimate.json'
+    if not path.exists():
+        return {}
+    try:
+        measured = json.loads(path.read_text())
+        skipped = set(measured['skipped_unreadable_markdown'])
+        if (measured['projection_scope'] != 'usable ready Markdown only'
+                or measured['ready_markdown_count']+len(skipped) != len(rows)
+                or not skipped.issubset({r['pdf_path'] for r in rows})
+                or sum(r['markdown_bytes'] for r in rows if r['pdf_path'] not in skipped) != measured['markdown_bytes']):
+            return {'chunk_eta_caveat': 'Corpus measurement is stale; rerun the usable Markdown estimator.'}
+        config = next(c for c in measured['projections']
+                      if (c['chunk_size'],c['overlap'],c['dimensions']) == (175,20,4096))
+        total = config['measured_chunks']
+        rate = max(0,stored_chunks-run['initial_chunks'])/elapsed*3600 if elapsed >= 60 else 0
+        remaining = max(0,total-stored_chunks)
+        return {'chunk_estimate_as_of': measured['measured_at'], 'estimated_total_chunks': total,
+                'estimated_remaining_chunks': remaining, 'chunks_per_hour': rate,
+                'estimated_chunk_backlog_eta_hours': remaining/rate if rate else None,
+                'chunk_eta_caveat': 'Measured token-window backlog at throughput since this run started; whitespace-only windows, retries and large-document latency can affect completion.'}
+    except (OSError, ValueError, KeyError, TypeError, StopIteration):
+        return {'chunk_eta_caveat': 'Usable-corpus estimate could not be read; rerun the estimator.'}
 
 
 def retrieve(data_dir, host, port, query, top_k=8):

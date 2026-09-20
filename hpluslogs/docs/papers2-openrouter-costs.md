@@ -1,6 +1,29 @@
 # papers2 — OpenRouter embedding cost estimate
 
-## Updated whole-archive estimate — September 19, 2026
+## Measured usable-corpus estimate — September 19, 2026, 23:45 CDT
+
+**$3.47 total one-time embedding estimate**, including work already performed.
+The previous size-scaled estimate was $3.49. The cumulative ledger limit stays $5.
+
+| Full usable Markdown measurement | Value |
+| --- | ---: |
+| Files / size | 11,324 / 1,132,819,233 bytes (1.055 GiB) |
+| Project tokenizer, before overlap | 290,191,980 tokens |
+| Qwen tokenizer, before overlap | 306,200,108 tokens |
+| Estimated submitted Qwen tokens, overlap included | 347,441,837 |
+| 175/20 token windows / expected vectors | 1,876,417 |
+| Embedding rate | $0.01 / million input tokens |
+| One-time embedding estimate | **$3.4744** |
+| FP32 vectors alone | 28.63 GiB |
+| Heuristic Chroma RAM | 59.26 GiB; deployed limit 96 GiB |
+
+All Markdown hashes were checked. The measurement excludes 413 unreadable outputs
+and 46 unconverted PDFs. Billing still estimates overlap from tokenizer ratios
+and one special token per chunk; provider tokenization, retries and query inputs
+can change actual charges. Whitespace-only windows can slightly reduce vector
+counts. [Measured report](papers2-openrouter-usable-estimate-2026-09-19.json).
+
+## Previous size-based estimate — September 19, 2026
 
 **About $3.49 total, once, for the current usable Markdown scope.** This includes
 embedding spend already incurred; it is not an additional fee or a monthly bill.
@@ -136,8 +159,8 @@ python hpluslogs/scripts/estimate_papers_chroma.py \
   --data-dir "$PAPERS_DATA" --dimensions 4096 \
   --billing-tokenizer "$PAPERS_TOKENIZER" --workers 8 --skip-unreadable \
   --prices-per-million 0.01 0.04 \
-  > "$PAPERS_DATA/papers2_openrouter_estimate.json"
-python -m json.tool "$PAPERS_DATA/papers2_openrouter_estimate.json"
+  > "$PAPERS_DATA/papers2_usable_token_estimate.json"
+python -m json.tool "$PAPERS_DATA/papers2_usable_token_estimate.json"
 ```
 
 Uses the project's `o200k_base` chunk-count convention and the pinned Qwen
@@ -154,8 +177,8 @@ PAPERS_HOST=bigboy.local
 PAPERS_USER=kanzure
 PAPERS_PATH=/home/kanzure/hpluslogs-papers-conversion
 PAPERS_CONTAINER="hpluslogs-papers-$(python -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$PAPERS_PATH")"
-ssh "$PAPERS_USER@$PAPERS_HOST" "docker run --rm --network none --read-only --cpus 8 --memory 16g --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data,readonly --entrypoint python ${PAPERS_CONTAINER}-estimate:latest /app/hpluslogs/scripts/estimate_papers_chroma.py --data-dir /data --dimensions 4096 --billing-tokenizer /app/qwen3-tokenizer.json --workers 8 --skip-unreadable --prices-per-million 0.01 0.04 > '$PAPERS_PATH/data/papers2_openrouter_estimate.json'"
-ssh "$PAPERS_USER@$PAPERS_HOST" "cat '$PAPERS_PATH/data/papers2_openrouter_estimate.json'"
+ssh "$PAPERS_USER@$PAPERS_HOST" "docker run --rm --network none --read-only --cpus 8 --memory 16g --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data,readonly --entrypoint python ${PAPERS_CONTAINER}-estimate:latest /app/hpluslogs/scripts/estimate_papers_chroma.py --data-dir /data --dimensions 4096 --billing-tokenizer /app/qwen3-tokenizer.json --workers 8 --skip-unreadable --prices-per-million 0.01 0.04 > '$PAPERS_PATH/data/papers2_usable_token_estimate.json'"
+ssh "$PAPERS_USER@$PAPERS_HOST" "cat '$PAPERS_PATH/data/papers2_usable_token_estimate.json'"
 ```
 
 Separate xAI estimate: [papers2-xai-costs.md](papers2-xai-costs.md).

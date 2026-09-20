@@ -81,7 +81,11 @@ ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) 
 
 `skipped_unreadable_markdown`: deferred text repair. `retryable_or_other_failures`:
 API/storage/other failures, retried on subsequent watch passes. No OCR is launched
-by these commands.
+by these commands. `estimated_chunk_backlog_eta_hours` uses the saved usable-corpus
+token measurement and current vector throughput, accounting for large books.
+Generate `data/papers2_usable_token_estimate.json` using the invocation in
+[papers2-openrouter-costs.md](papers2-openrouter-costs.md). Stale size/count scopes
+are rejected; paper-count ETA remains available separately.
 
 ## Retrieve source passages
 
