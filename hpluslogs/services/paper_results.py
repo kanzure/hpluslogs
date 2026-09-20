@@ -67,6 +67,56 @@ def label(text):
     return text.replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]').replace('\n', ' ').replace('\r', ' ')
 
 
+def answer_markdown(answer, passages):
+    """Make LLM lists and numeric citations unambiguous to Markdown readers.
+
+    In particular, [1][2] means a reference link in Markdown, not two
+    citations. Emit explicit links with visible brackets instead. Preserve
+    code and existing links rather than rewriting their contents.
+    """
+    urls = {str(i): p['metadata']['source_url'] for i, p in enumerate(passages, 1)}
+    tokens = re.compile(
+        r'(?P<code>`+)(?:(?!(?P=code)).)*?(?P=code)'
+        r'|!?\[(?:\\.|[^\]\\])*\]\([^\n]*?\)'
+        r'|\[(?!\d+\])(?:\\.|[^\]\\])*\]\[[^\]\n]*\]'
+        r'|<[^>\n]+>|\\.'
+        r'|(?P<citation>\[(?P<number>\d+)\])')
+
+    def cite(match):
+        number = match.group('number')
+        if number in urls:
+            return f'[\\[{number}\\]](<{urls[number]}>)'
+        return match.group(0)
+
+    lines, fence = [], None
+    list_item = re.compile(r'^ {0,3}(?:[-+*]|\d+[.)])\s+')
+    for line in answer.splitlines():
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+        if fence:
+            lines.append(line)
+            if re.fullmatch(r' {0,3}'+re.escape(fence[0])+r'{'+str(len(fence))+r',}\s*', line):
+                fence = None
+            continue
+        if marker:
+            fence = marker.group(1)
+            lines.append(line)
+            continue
+        # Indented code and reference definitions are not citation prose.
+        if line.startswith(('    ', '\t')) or re.match(r'^ {0,3}\[[^\]]+\]:', line):
+            lines.append(line)
+            continue
+        section = re.fullmatch(r'\*\*([^*]+)\*\*\s*', line)
+        if section:
+            if lines and lines[-1].strip():
+                lines.append('')
+            lines.extend(['## '+tokens.sub(cite, section.group(1)), ''])
+            continue
+        if list_item.match(line) and lines and lines[-1].strip() and not list_item.match(lines[-1]):
+            lines.append('')
+        lines.append(tokens.sub(cite, line))
+    return '\n'.join(lines)
+
+
 def publish_result(data_dir, result, name, css_file='wrap.css', upload=True,
                    remote_user='bryan', remote_host='gnusha.org', remote_path=REMOTE_PATH):
     """Save JSON, answer and context; render all files before any remote writes."""
@@ -82,17 +132,16 @@ def publish_result(data_dir, result, name, css_file='wrap.css', upload=True,
     stylesheet = outputs/(name+'.css')
     stylesheet.write_bytes(css.read_bytes())
     heading = '# '+label(result['question'])+'\n\n'
-    sources, excerpts, references = [], [], []
+    sources, excerpts = [], []
     for i, passage in enumerate(result['passages'], 1):
         meta = passage['metadata']
         title = label(unquote(meta['pdf_path']))
         url = meta['source_url']
         sources.append(f'{i}. [{title}](<{url}>)')
         excerpts.append(f'## Source {i}: {title}\n\n<{url}>\n\n{passage["content"]}')
-        references.append(f'[{i}]: <{url}>')
     context = heading+'\n\n'.join(excerpts) if excerpts else heading+'No matching passages found.\n'
     answer = result.get('answer')
-    markdown = (heading+answer+'\n\n## Sources\n\n'+'\n'.join(sources)+'\n\n'+'\n'.join(references)+'\n') if answer else context
+    markdown = (heading+answer_markdown(answer, result['passages'])+'\n\n## Sources\n\n'+'\n'.join(sources)+'\n') if answer else context
     for suffix, content in (('.context', context), ('', markdown)):
         try:
             publishing.output(data_dir, content, name+suffix, stylesheet.name,

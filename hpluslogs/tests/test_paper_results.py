@@ -44,6 +44,38 @@ class PaperResultsTest(unittest.TestCase):
         self.assertEqual(json.loads(Path(report['result_json']).read_text()), self.result)
 
     @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc not installed')
+    def test_llm_sections_lists_and_adjacent_citations_render_correctly(self):
+        self.result['passages'] = [
+            {'content': f'Source {i}', 'metadata': {'pdf_path': f'{i}.pdf',
+                'source_url': f'https://example.org/{i}.pdf'}} for i in range(1, 4)]
+        self.result['answer'] = (
+            'Evidence [1][2][3] and spaced references [2] [1].\n\n'
+            '**Single Cells**\nApplications include:\n'
+            '* Sorting [1].\n* Analysis [2].\n\n'
+            '**Embryos**\nProcedures include:\n1. Culture [3].\n2. Transport [2].')
+        pr.publish_result(self.root, self.result, 'formatted', upload=False)
+        html = (self.root/'outputs/formatted.html').read_text()
+        for i in range(1, 4):
+            self.assertIn(f'<a href="https://example.org/{i}.pdf">[{i}]</a>', html)
+        self.assertIn('<h2 id="single-cells">Single Cells</h2>', html)
+        self.assertIn('<h2 id="embryos">Embryos</h2>', html)
+        self.assertIn('<ul>\n<li>Sorting', html)
+        self.assertIn('<ol type="1">\n<li>Culture', html)
+        self.assertNotIn('include: *', html)
+        self.assertEqual(pr.read_result(self.root/'papers2_local_queries/formatted.json'), self.result)
+
+    def test_formatting_preserves_code_and_existing_links(self):
+        untouched = (
+            '`array[1][2]` and ``array[1]``\n\n'
+            '```python\n**Code**\n* array[1]\n```\n\n'
+            '~~~~\narray[1]\n~~~\n**still code**\n~~~~\n\n'
+            '    array[1]\n\n'
+            '[1](https://example.org/custom) [named][1]\n'
+            '[1]: https://example.org/custom\n'
+            r'Escaped \[1\] and <https://example.org/[1]> and unknown [999].')
+        self.assertEqual(pr.answer_markdown(untouched, self.result['passages']), untouched)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc not installed')
     def test_upload_uses_papers_directory_and_includes_both_formats_and_css(self):
         with patch.object(pr.scp, 'ensure_remote_directory', return_value=True) as mkdir, \
              patch.object(pr.scp, 'upload_file', return_value=True) as upload:
