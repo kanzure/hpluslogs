@@ -1,6 +1,18 @@
 # papers2 xAI cost reference
 
-## Latest saved estimate — 2026-09-19, America/Chicago
+## Latest measured estimate — 2026-09-19, 23:05 CDT
+
+Conversion pass finished. All 11,737 generated Markdown files passed hash checks:
+**1,193,113,963 bytes / 1.111 GiB**. At index size equal to Markdown size, storage
+would be **$4.17 per 30 days**.
+
+The current Chroma scope skips 413 unreadable outputs, leaving **11,324 usable
+Markdown files / 1,132,819,233 bytes / 1.055 GiB**. Uploading only that usable
+Markdown to xAI would be **$3.96 per 30 days**, under the same index-size assumption.
+No xAI upload has occurred. Query charges remain additional; actual billable xAI
+index size is unknown. The 46 unconverted PDFs and deferred OCR are excluded.
+
+## Earlier near-complete projection — 2026-09-19, 22:43 CDT
 
 **$4.15–$4.16 per 30 days for full-archive storage**, assuming the billable
 collection index is the same size as the Markdown. Current completed Markdown

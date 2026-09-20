@@ -290,3 +290,20 @@ Verified retrieval of the electrophoretic DNA/post collision paper and electric-
 DNA placement paper. The generated answer cites stretching, hook/roll-off events
 and Deborah-number dependence from retrieved excerpts. This validates the query
 path; indexing of usable Markdown remains in progress; OCR-dependent papers are skipped.
+
+## Current indexing scope — September 19, 2026, 23:05 CDT
+
+| Archive check | Count |
+| --- | ---: |
+| Source PDFs | 11,783 |
+| Completed Markdown, all hashes verified | 11,737 |
+| Usable Markdown indexing target | 11,324 |
+| Garbled Markdown deferred; OCR disabled | 413 |
+| Unconverted PDFs deferred | 46 |
+| Markdown hash/read failures | 0 |
+
+Usable Markdown: 1,132,819,233 bytes (1.055 GiB). All generated Markdown:
+1,193,113,963 bytes (1.111 GiB). Saved remote inventory:
+`data/papers2_markdown_eligibility.json`. Conversion is finished; indexing continues.
+The final Chroma audit must verify all 11,324 usable documents, with the 413
+encoding exclusions listed explicitly. Example queries do not prove full coverage.
