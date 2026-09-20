@@ -128,14 +128,52 @@ ssh -N -L 18081:127.0.0.1:18081 "$PAPERS_TARGET"
 python -m hpluslogs.cli --data-dir hpluslogs/data papers-chroma-query --chroma-port 18081 --nollm 'What mechanisms enable molecular computation?'
 ```
 
-## Add PDFs / convert / index
+## Add PDFs without rebuilding the archive
+
+Run from this repository. Replace the source PDF path and choose a stable path
+inside the collection. The incoming directory contains only your additions.
 
 ```bash
-# See papers2-commands.md for transfer/restore and remote conversion deployment.
-python -m hpluslogs.cli --data-dir hpluslogs/data papers-add /path/to/new-paper.pdf --path topic/new-paper.pdf
-python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-deploy "${PAPERS_REMOTE[@]}" --workers 56 --timeout 600 --transfer tar
-# The running Chroma watcher picks up completed Markdown automatically.
+source hpluslogs/venv/bin/activate
+PAPERS_INCOMING=hpluslogs/data/papers2-incoming
+python -m hpluslogs.cli --data-dir "$PAPERS_INCOMING" papers-add \
+  /path/to/new-paper.pdf --path aging/new-paper.pdf
+python -m hpluslogs.cli --data-dir "$PAPERS_INCOMING" papers-remote-deploy \
+  --host bigboy.local --user kanzure \
+  --path /home/kanzure/hpluslogs-papers-conversion \
+  --workers 32 --timeout 1800 --transfer tar --skip-failed
 ```
+
+Repeat `papers-add` for multiple PDFs, then deploy once. Transfers preserve other
+remote PDFs and the authoritative remote conversion manifest. Unchanged PDFs are
+hash-checked and reuse their Markdown; normal conversion performs no new OCR.
+`--skip-failed` leaves unchanged failed PDFs deferred, but retries a replacement
+whose bytes changed. The running Chroma watcher picks up ready Markdown every
+120 seconds and reuses existing embeddings. New/changed text adds embedding usage
+against the existing cumulative $5 limit; `papers-remote-deploy` does not reset it.
+
+### Update an existing paper
+
+```bash
+python -m hpluslogs.cli --data-dir "$PAPERS_INCOMING" papers-add \
+  /path/to/revised-paper.pdf --path aging/new-paper.pdf --replace
+# Repeat the same papers-remote-deploy command above.
+```
+
+Keep the same collection-relative path to replace that paper's vectors. A new
+path creates another paper. Public citation URLs use that path under
+`https://diyhpl.us/~bryan/papers2/`; publish the PDF there if those URLs should work.
+
+### Progress
+
+```bash
+python -m hpluslogs.cli papers-remote-progress \
+  --host bigboy.local --user kanzure --path /home/kanzure/hpluslogs-papers-conversion
+ssh kanzure@bigboy.local 'docker exec hpluslogs-papers-e93c39ef21ed-chroma-index python -m hpluslogs.papers_chroma_cli papers-chroma-status'
+```
+
+Let an active conversion finish before another deployment. Keep the remote data
+directory, manifests and SSD Chroma store; they hold the resume checkpoints.
 
 ## Pause / resume embedding requests
 
@@ -157,31 +195,11 @@ ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 
 [Chroma server deployment](https://docs.trychroma.com/guides/deploy/docker).
 
-## Optional OCR retry — currently disabled
+## OCR recovery — currently disabled
 
-These commands are for a future explicitly requested OCR recovery pass.
-English Tesseract data is included in the conversion image. A previously empty
-scanned PDF produced 10,020 Markdown bytes in a real smoke test. Completed outputs
-are preserved; the retry uses the same PyMuPDF4LLM settings. OCR can contain errors.
-Empty or invalid source files still require replacement; inspect failures afterward.
-
-```bash
-# Build the updated image without stopping conversion or transferring PDFs:
-python -m hpluslogs.cli papers-remote-build "${PAPERS_REMOTE[@]}"
-# To schedule a retry while the existing converter is still running:
-scp hpluslogs/scripts/retry_papers_conversion.py "$PAPERS_TARGET:$PAPERS_PATH/watcher/retry_papers_conversion.py"
-ssh "$PAPERS_TARGET" "systemd-run --user --unit=${PAPERS_CONTAINER}-ocr-retry --collect python3 '$PAPERS_PATH/watcher/retry_papers_conversion.py' --config '$PAPERS_PATH/watcher/config.json' --workers 16 --timeout 1800"
-ssh "$PAPERS_TARGET" "journalctl --user -u ${PAPERS_CONTAINER}-ocr-retry.service -n 10 --no-pager"
-ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_conversion_retry.json'"
-# Before intentionally stopping all conversion, cancel any waiting retry:
-ssh "$PAPERS_TARGET" "systemctl --user stop ${PAPERS_CONTAINER}-ocr-retry.service"
-python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-stop "${PAPERS_REMOTE[@]}"
-```
-
-The retry pins the built image and the observed container ID. If another operator
-replaces that container, the watcher stops instead of replacing their new run.
-The watcher needs the `watcher/config.json` produced by the restic handoff workflow.
-[PyMuPDF4LLM OCR support](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/ocr-plugins.html).
+Normal conversion extracts existing text only, including existing hidden text
+layers. Image-only scans can remain unconverted. OCR requires the separate
+optional `papers-remote-repair` / `papers-repair --apply` commands below.
 
 ## Verify complete Markdown indexing
 
@@ -228,7 +246,8 @@ and conversion errors; does not change source files or checkpoints.
 ## Long-document resume checkpoints
 
 PDFs with 200 or more pages now save 20-page batches in `data/papers2_page_cache`.
-Cache keys include source bytes, converter settings and English OCR data. Each
+Normal-conversion cache keys include source bytes, converter settings and the
+no-OCR policy. Each
 batch is hash checked and written atomically. Timeouts/restarts reuse finished
 batches; completed Markdown files are still skipped by the existing manifest.
 Keep this directory on the remote host across retries.
