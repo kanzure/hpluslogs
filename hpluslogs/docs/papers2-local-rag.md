@@ -119,7 +119,24 @@ Uses 100 passages by default. Prints public HTML and Markdown URLs when uploadin
 finishes. Saves answer/context files in `hpluslogs/data/outputs/` with unique
 timestamp names. Transfer route: query worker → this machine → publishing host.
 
+Default LLM pass: extensive technical report covering mechanisms, evidence and
+comparisons, limitations, speculative research ideas, references and named entities.
+Claims cite retrieved excerpts; speculation is labeled. Output budget: 8,192 tokens
+(a ceiling, not a guaranteed length). Retrieval and embeddings are unchanged.
+Verified September 20: [microfluidics report](https://diyhpl.us/~bryan/irc/chatgpt/papers2/microfluidics-technical-report.html),
+1,962 words from 100 passages, including all six analysis sections and a comparison table.
+
 ```bash
+# Additional tasks for the report; retrieval still uses the question:
+PAPERS_PROMPT_FRAGMENT='Compare methods, explain tradeoffs, and propose experiments' \
+  hpluslogs/papers-query 'microfluidic manipulation of single cells'
+
+# Short answer instead of the extensive report:
+PAPERS_BRIEF=1 hpluslogs/papers-query 'genetic barcodes and barcoding'
+
+# Increase the output budget if a report reaches its limit:
+PAPERS_MAX_ANSWER_TOKENS=12000 hpluslogs/papers-query 'genetic barcodes and barcoding'
+
 # Optional name and retrieval limit:
 PAPERS_OUTPUT_NAME=mitochondria-aging PAPERS_TOP_K=20 \
   hpluslogs/papers-query 'How do mitochondria contribute to aging?'
@@ -154,6 +171,14 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-query \
 - `--no-upload`: generate local files only. `--nollm`: passages only, no answer model.
 - Publishing overrides: `--remote-user`, `--remote-host`, `--remote-path`.
 - Query worker: `--host`, `--user`, `--path`; model endpoint: `--llm-url`.
+- Report controls (also available on `papers-chroma-query`): `--prompt-fragment`,
+  `--brief`, `--max-answer-tokens`. Default: one extensive LLM pass after retrieval;
+  no extra baseline-model call. `--nollm` skips the report entirely.
+- Failed/empty/truncated model responses are not published. Retrieved passages
+  remain in the worker's saved JSON. Brief mode defaults to 1,800 output tokens.
+- Paper rendering normalizes adjacent numeric citations, lists and section headings
+  before Pandoc. Re-run `papers-publish` on saved JSON to repair older HTML without
+  repeating retrieval or model calls; the saved model response is preserved.
 
 ## Render/upload saved results without repeating model calls
 
