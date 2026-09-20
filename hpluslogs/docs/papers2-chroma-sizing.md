@@ -1,5 +1,20 @@
 # papers2 local Chroma RAM estimate
 
+## Observed full usable index — September 20, 2026
+
+| Measurement | Observed |
+| --- | ---: |
+| Indexed papers / 4,096-dimensional vectors | 11,324 / 1,876,298 |
+| Chroma container memory during final readback audit | 34.74 GiB |
+| Allocated Chroma memory limit | 96 GiB |
+| SSD directory usage, including index/text/metadata/WAL | Approximately 41 GiB |
+| Free space on the SSD | Approximately 5.1 TiB |
+
+The current host has enough capacity for this index. These are point-in-time
+observations, not peak-load or cold-start benchmarks. Answer-model memory is
+separate. Store: `/srv/storage/disk01/hpluslogs-papers-chroma`.
+
+
 ## Planning answer
 
 For **800-token chunks with 100-token overlap** and **4,096-dimensional vectors**,
