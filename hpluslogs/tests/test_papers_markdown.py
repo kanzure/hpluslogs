@@ -129,8 +129,35 @@ class MarkdownTest(unittest.TestCase):
     def test_conversion_worker_matches_reference_settings(self):
         from hpluslogs.services import paper_conversion_worker as worker
         output = self.data/'out.md'
-        with patch('pymupdf4llm.to_markdown', return_value='# markdown') as convert, \
+        with patch.object(worker, 'configure_inference_threads'), \
+             patch('pymupdf4llm.to_markdown', return_value='# markdown') as convert, \
              patch.object(worker.sys, 'argv', ['worker', 'input.pdf', str(output)]):
             worker.main()
         convert.assert_called_once_with('input.pdf', header=False, footer=False)
         self.assertEqual(output.read_text(), '# markdown')
+
+    def test_inference_thread_limits_preserve_session_options_and_providers(self):
+        from hpluslogs.services import paper_conversion_worker as worker
+        class Options:
+            def __init__(self):
+                self.entries = {}
+                self.enable_cpu_mem_arena = False
+            def add_session_config_entry(self, name, value):
+                self.entries[name] = value
+        class Session:
+            def __init__(self, model, opts, *args, **kwargs):
+                self.model, self.options, self.extra = model, opts, (args, kwargs)
+        fake = NS(InferenceSession=Session, SessionOptions=Options)
+        with patch.dict('sys.modules', {'onnxruntime': fake}):
+            worker.configure_inference_threads(1)
+            options = Options()
+            session = fake.InferenceSession('model.onnx', options, providers=['CPUExecutionProvider'])
+            self.assertIs(session.options, options)
+            self.assertFalse(options.enable_cpu_mem_arena)
+            self.assertEqual(options.intra_op_num_threads, 1)
+            self.assertEqual(options.inter_op_num_threads, 1)
+            self.assertEqual(options.entries['session.intra_op.allow_spinning'], '0')
+            self.assertEqual(session.extra[1]['providers'], ['CPUExecutionProvider'])
+            self.assertEqual(fake.InferenceSession('model.onnx').options.intra_op_num_threads, 1)
+        with self.assertRaises(ValueError):
+            worker.configure_inference_threads(0)

@@ -111,7 +111,8 @@ def convert(data_dir, workers=2, timeout=600, limit=None):
             raise click.ClickException('No local PDFs found. Restore papers2 first.')
         counts = {}
         run = {'started_at': time.time(), 'workers': workers, 'timeout': timeout,
-               'pid': os.getpid(), 'state': 'running'}
+               'pid': os.getpid(), 'state': 'running',
+               'inference_threads_per_worker': int(os.environ.get('PAPERS_INFERENCE_THREADS', '1'))}
         run_file = data_dir / 'papers2_conversion_run.json'
         papers.write_json(run_file, run)
         previous_handler = None

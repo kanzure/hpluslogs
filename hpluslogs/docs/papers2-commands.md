@@ -94,16 +94,17 @@ PAPERS_USER="${PAPERS_USER:-your-user}"
 PAPERS_PATH="${PAPERS_PATH:-/home/your-user/hpluslogs-papers-conversion}"
 PAPERS_REMOTE=(--host "$PAPERS_HOST" --user "$PAPERS_USER" --path "$PAPERS_PATH")
 PAPERS_TARGET="$PAPERS_USER@$PAPERS_HOST"
+PAPERS_WORKERS="${PAPERS_WORKERS:-56}"
 PAPERS_CONTAINER="hpluslogs-papers-$(python -c 'import hashlib,sys; from pathlib import PurePosixPath; print(hashlib.sha256(str(PurePosixPath(sys.argv[1])).encode()).hexdigest()[:12])' "$PAPERS_PATH")"
 ```
 
-## Deploy / resume / process newly added PDFs — 48 workers
+## Deploy / resume / process newly added PDFs — configurable workers
 
 Streams changed PDFs via tar + zstd over SSH; transfers completed Markdown and a SQLite checkpoint. Later deployments preserve remote progress.
 
 ```bash
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-deploy \
-  "${PAPERS_REMOTE[@]}" --workers 48 --timeout 600 --transfer tar
+  "${PAPERS_REMOTE[@]}" --workers "$PAPERS_WORKERS" --timeout 600 --transfer tar
 ```
 
 ## Current deployment log — transfer, then container launch
@@ -182,7 +183,7 @@ python -c 'import json,sys; r=json.load(open(sys.argv[1])); print(json.dumps(r["
 
 ```bash
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-deploy \
-  "${PAPERS_REMOTE[@]}" --workers 48 --timeout 1800 --transfer tar
+  "${PAPERS_REMOTE[@]}" --workers "$PAPERS_WORKERS" --timeout 1800 --transfer tar
 ```
 
 Empty-text/scanned/broken PDFs need inspection or OCR; increasing the timeout alone may not help.
@@ -194,7 +195,7 @@ Pull again after retries. All eligible papers must convert successfully before u
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-stop "${PAPERS_REMOTE[@]}"
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-pull "${PAPERS_REMOTE[@]}"
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-add /path/to/new-paper.pdf --path topic/new-paper.pdf
-python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-deploy "${PAPERS_REMOTE[@]}" --workers 48
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-deploy "${PAPERS_REMOTE[@]}" --workers "$PAPERS_WORKERS"
 ```
 
 ## Cost review — after conversion finishes
@@ -314,7 +315,7 @@ Also verifies the saved Markdown checkpoint. Preserves the partial transfer dire
 
 ```bash
 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-watch-restore \
-  "${PAPERS_REMOTE[@]}" --staging-name papers2-restic --workers 48 --timeout 600
+  "${PAPERS_REMOTE[@]}" --staging-name papers2-restic --workers "$PAPERS_WORKERS" --timeout 600
 ```
 
 The watcher lives on the destination and survives SSH disconnection. Once setup
@@ -347,3 +348,26 @@ The host records `data/papers2_progress_latest.json` and
 size, ETA, costs and container status. Survives SSH disconnection; records a final
 snapshot and exits when conversion stops. This saves reports on the host; it does
 not send chat messages. Start it again for a subsequent conversion run.
+
+## Conversion CPU tuning — September 19, 2026
+
+Current 64-logical-CPU host: 56 workers, Docker CPU ceiling 56, one ONNX inference
+thread per worker; ONNX spinning disabled. Initial check: about 56 CPUs busy,
+15.9 GiB RAM, 114 container tasks (previously roughly 4,100 tasks at 48 workers).
+Completed Markdown remains reusable; a sample conversion produced identical bytes.
+See [ONNX thread settings](https://onnxruntime.ai/docs/performance/tune-performance/threading.html).
+
+```bash
+# Adjust concurrency for future deployments:
+PAPERS_WORKERS=56
+# Inspect live resource use:
+ssh "$PAPERS_TARGET" "docker stats --no-stream $PAPERS_CONTAINER"
+# Inspect current worker count / inference thread setting / ETA:
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-progress "${PAPERS_REMOTE[@]}"
+```
+
+Local conversion also defaults to one inference thread per worker. Optional override:
+
+```bash
+PAPERS_INFERENCE_THREADS=1 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-markdown --workers 4
+```
