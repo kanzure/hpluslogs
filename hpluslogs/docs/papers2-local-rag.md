@@ -106,19 +106,56 @@ Generate `data/papers2_usable_token_estimate.json` using the invocation in
 [papers2-openrouter-costs.md](papers2-openrouter-costs.md). Stale size/count scopes
 are rejected; paper-count ETA remains available separately.
 
-## Retrieve source passages
+## Query, summarize, render Markdown/HTML and upload
+
+Run locally from this repository; requires local Pandoc and SSH access to both
+the query worker and publishing host. No container rebuild or SSH tunnel needed.
+
+```bash
+source hpluslogs/venv/bin/activate
+python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-query \
+  --host bigboy.local --user kanzure \
+  --path /home/kanzure/hpluslogs-papers-conversion \
+  --model qwen-flash-next-uncensored-sglang \
+  --top-k 100 --output-name qwen-genetic-barcoding \
+  'genetic barcodes and barcoding'
+```
+
+- Local: `hpluslogs/data/outputs/qwen-genetic-barcoding.{md,html,context.md,context.html,css}`.
+- Saved JSON: `hpluslogs/data/papers2_local_queries/qwen-genetic-barcoding.json` (also saved on the worker).
+- Default upload: `bryan@gnusha.org:~/public_html/irc/chatgpt/papers2/`.
+- HTML: <https://diyhpl.us/~bryan/irc/chatgpt/papers2/qwen-genetic-barcoding.html>.
+- `--no-upload`: generate local files only. `--nollm`: passages only, no answer model.
+- Publishing overrides: `--remote-user`, `--remote-host`, `--remote-path`.
+- Query worker: `--host`, `--user`, `--path`; model endpoint: `--llm-url`.
+
+## Render/upload saved results without repeating model calls
+
+```bash
+mkdir -p hpluslogs/data/papers2_local_queries
+scp kanzure@bigboy.local:/home/kanzure/hpluslogs-papers-conversion/data/papers2_local_queries/qwen-genetic-barcoding.json \
+  hpluslogs/data/papers2_local_queries/
+python -m hpluslogs.cli --data-dir hpluslogs/data papers-publish \
+  hpluslogs/data/papers2_local_queries/qwen-genetic-barcoding.json
+```
+
+Append `--no-upload` for local rendering only. Reuse `papers-publish` after an
+upload failure; all local files are rendered before uploading.
+
+## Retrieve source passages (raw JSON)
 
 ```bash
 ssh "$PAPERS_TARGET" "docker exec ${CHROMA_CONTAINER}-index python -m hpluslogs.papers_chroma_cli papers-chroma-query --nollm --top-k 8 'How can DNA molecules be aligned on surfaces?'"
 ```
 
-## Generate a cited answer using a local model
+## Generate a cited answer using a local model (raw JSON)
 
 ```bash
 ssh "$PAPERS_TARGET" "docker exec ${CHROMA_CONTAINER}-index python -m hpluslogs.papers_chroma_cli papers-chroma-query --llm-url http://127.0.0.1:8080/v1 --model '$PAPERS_LLM_MODEL' --top-k 8 'How can DNA molecules be aligned on surfaces?'"
 ```
 
-Results and answers: remote `data/papers2_local_queries/*.json`.
+Results and answers: remote `data/papers2_local_queries/*.json`. These raw Docker
+commands do not render or publish; use `papers-remote-query` above for that.
 
 ## Query from this machine through SSH
 
