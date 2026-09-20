@@ -117,7 +117,7 @@ documents, metadata and WAL. [Chroma resource guidance](https://cookbook.chromad
 - Unchanged paper embeddings can be reused. Updates/new papers and query embeddings incur additional token charges.
 - Local Chroma has no hosted vector-storage subscription. Machine storage/electricity and answer-generation costs are separate.
 - Chunk overlap repeats input tokens. Provider retries and credit-purchase fees are not included.
-- Conversion and text-quality repairs are still in progress; final Markdown/token totals can change.
+- The conversion pass is finished; OCR recovery is deferred. New or repaired Markdown changes future totals.
 
 ```text
 Embedding cost = submitted input tokens / 1,000,000 × provider price
@@ -134,7 +134,7 @@ PAPERS_TOKENIZER="$PAPERS_DATA/qwen3-embedding-8b-tokenizer.json"
 curl -fL 'https://huggingface.co/Qwen/Qwen3-Embedding-8B/resolve/1d8ad4ca9b3dd8059ad90a75d4983776a23d44af/tokenizer.json' -o "$PAPERS_TOKENIZER"
 python hpluslogs/scripts/estimate_papers_chroma.py \
   --data-dir "$PAPERS_DATA" --dimensions 4096 \
-  --billing-tokenizer "$PAPERS_TOKENIZER" --workers 8 \
+  --billing-tokenizer "$PAPERS_TOKENIZER" --workers 8 --skip-unreadable \
   --prices-per-million 0.01 0.04 \
   > "$PAPERS_DATA/papers2_openrouter_estimate.json"
 python -m json.tool "$PAPERS_DATA/papers2_openrouter_estimate.json"
@@ -143,7 +143,9 @@ python -m json.tool "$PAPERS_DATA/papers2_openrouter_estimate.json"
 Uses the project's `o200k_base` chunk-count convention and the pinned Qwen
 tokenizer for pre-overlap input counts. Overlap billing uses each paper's observed
 tokenizer ratio plus one special token per chunk. This is an estimate, not a
-provider invoice. Only tokenizer files are downloaded; no embedding API calls.
+provider invoice. `--skip-unreadable` verifies Markdown hashes and measures the
+current usable scope without extrapolating to deferred PDFs. Only tokenizer files
+are downloaded; no embedding API calls.
 
 ## Recalculate on the current remote deployment
 
@@ -152,7 +154,7 @@ PAPERS_HOST=bigboy.local
 PAPERS_USER=kanzure
 PAPERS_PATH=/home/kanzure/hpluslogs-papers-conversion
 PAPERS_CONTAINER="hpluslogs-papers-$(python -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$PAPERS_PATH")"
-ssh "$PAPERS_USER@$PAPERS_HOST" "docker run --rm --network none --read-only --cpus 8 --memory 16g --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data,readonly --entrypoint python ${PAPERS_CONTAINER}-estimate:latest /app/hpluslogs/scripts/estimate_papers_chroma.py --data-dir /data --dimensions 4096 --billing-tokenizer /app/qwen3-tokenizer.json --workers 8 --prices-per-million 0.01 0.04 > '$PAPERS_PATH/data/papers2_openrouter_estimate.json'"
+ssh "$PAPERS_USER@$PAPERS_HOST" "docker run --rm --network none --read-only --cpus 8 --memory 16g --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data,readonly --entrypoint python ${PAPERS_CONTAINER}-estimate:latest /app/hpluslogs/scripts/estimate_papers_chroma.py --data-dir /data --dimensions 4096 --billing-tokenizer /app/qwen3-tokenizer.json --workers 8 --skip-unreadable --prices-per-million 0.01 0.04 > '$PAPERS_PATH/data/papers2_openrouter_estimate.json'"
 ssh "$PAPERS_USER@$PAPERS_HOST" "cat '$PAPERS_PATH/data/papers2_openrouter_estimate.json'"
 ```
 

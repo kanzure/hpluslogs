@@ -1,9 +1,37 @@
 import unittest
+import hashlib
+from pathlib import Path
+import tempfile
 from hpluslogs.scripts.estimate_papers_chroma import chunk_count, estimated_input_tokens
+from hpluslogs.scripts import estimate_papers_chroma as estimate
+from hpluslogs.services import papers_markdown
 from hpluslogs.scripts.papers_transfer_progress import summarize
 
 
 class CapacityEstimateTest(unittest.TestCase):
+    def test_usable_scope_excludes_garbled_text_without_extrapolating(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); (root/'papers2').mkdir(); (root/'papers2_markdown').mkdir()
+            for name in ('good','bad','failed'):
+                (root/'papers2'/f'{name}.pdf').write_bytes(b'source')
+            with papers_markdown.connect(root) as db:
+                for name,text in [('good','Readable paper text. '*100),('bad','\ufffd'*100)]:
+                    raw=text.encode(); (root/'papers2_markdown'/f'{name}.md').write_bytes(raw)
+                    db.execute('INSERT INTO conversions VALUES (?,?,?,?,?,?,?,?,?,?)',
+                               (name+'.pdf','source-hash',6,name+'.md',hashlib.sha256(raw).hexdigest(),len(raw),'recipe','ready',None,1))
+            result=estimate.estimate(root,workers=1,skip_unreadable=True)
+            self.assertEqual(result['pdf_count'],3)
+            self.assertEqual(result['ready_markdown_count'],1)
+            self.assertEqual(result['skipped_unreadable_markdown'],['bad.pdf'])
+            for item in result['projections']:
+                self.assertEqual(item['full_archive_vectors_range'],[item['measured_chunks']]*2)
+
+    def test_estimator_rejects_changed_markdown(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'paper.md'; path.write_text('Changed')
+            with self.assertRaisesRegex(ValueError,'changed since conversion'):
+                estimate.measure_file(({'pdf_path':'paper.pdf','markdown_sha256':'old'},path))
+
     def test_chunk_boundaries_and_overlap(self):
         self.assertEqual(chunk_count(0, 800, 100), 0)
         self.assertEqual(chunk_count(800, 800, 100), 1)
