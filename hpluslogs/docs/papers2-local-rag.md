@@ -23,21 +23,26 @@ responses with 1,000-chunk batches. Worker concurrency remains 80. Completed
 checkpoints are reused; the embedding model, dimensions and chunk boundaries stay
 the same. The CLI accepts `--batch-size` to tune request size.
 
-## Remote parameters
+## Current deployment parameters — copy this block
 
 ```bash
 source hpluslogs/venv/bin/activate
-PAPERS_HOST=conversion-server.example
-PAPERS_USER=your-user
-PAPERS_PATH=/home/your-user/hpluslogs-papers-conversion
+PAPERS_HOST=bigboy.local
+PAPERS_USER=kanzure
+PAPERS_PATH=/home/kanzure/hpluslogs-papers-conversion
 PAPERS_TARGET="$PAPERS_USER@$PAPERS_HOST"
 PAPERS_REMOTE=(--host "$PAPERS_HOST" --user "$PAPERS_USER" --path "$PAPERS_PATH")
 PAPERS_CONTAINER="hpluslogs-papers-$(python -c 'import hashlib,sys; from pathlib import PurePosixPath; print(hashlib.sha256(str(PurePosixPath(sys.argv[1])).encode()).hexdigest()[:12])' "$PAPERS_PATH")"
 CHROMA_CONTAINER="${PAPERS_CONTAINER}-chroma"
-PAPERS_LLM_MODEL=your-local-served-model-name
+PAPERS_LLM_MODEL=qwen-flash-next-uncensored-sglang
 CHROMA_DATA_PATH=/srv/storage/disk01/hpluslogs-papers-chroma
 PAPERS_ENV_FILE="$PAPERS_PATH/config/openrouter.env"
 ```
+
+For another deployment, change the host, user, path and model above, then rerun
+the entire block. The container name is derived from `PAPERS_PATH`; changing only
+the SSH destination does not recalculate it. Current query container:
+`hpluslogs-papers-e93c39ef21ed-chroma-index`.
 
 ## Private credentials on remote host
 
