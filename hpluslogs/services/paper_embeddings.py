@@ -8,6 +8,7 @@ import tempfile
 import time
 from types import SimpleNamespace
 import uuid
+import orjson
 
 import click
 from hpluslogs.integrations import openrouter
@@ -100,15 +101,16 @@ class Encoder:
             raise ValueError('Input exceeds conservative Qwen context bound')
         path = self.cache_path(key,texts)
         if key is not None and path.exists():
-            saved = json.loads(path.read_text())
+            saved = orjson.loads(path.read_bytes())
             response = SimpleNamespace(data=[SimpleNamespace(index=i,embedding=v) for i,v in enumerate(saved)])
             return validate_vectors(response,len(texts))
         ident = self.reserve(texts)
         try:
             # Reuse project authentication/endpoint. Explicit retries stay accounted in the ledger.
             client = openrouter.get_sync_client().with_options(max_retries=0,timeout=180)
+            # The SDK defaults to compact base64 transport and decodes to floats.
             response = client.embeddings.create(model=MODEL, input=texts, dimensions=DIMENSIONS,
-                encoding_format='float', extra_body={'provider': {
+                extra_body={'provider': {
                     'only':['nebius','deepinfra'], 'sort':'price',
                     'max_price':{'prompt':PRICE_PER_MILLION,'completion':0,'request':0}}})
             tokens = getattr(response.usage,'prompt_tokens',None)
@@ -122,8 +124,8 @@ class Encoder:
                            (cost,tokens,getattr(response,'id',None),'received',ident))
             vectors = validate_vectors(response,len(texts))
             if key is not None:
-                with tempfile.NamedTemporaryFile(mode='w',dir=self.cache,delete=False) as f:
-                    json.dump(vectors,f); temporary = Path(f.name)
+                with tempfile.NamedTemporaryFile(mode='wb',dir=self.cache,delete=False) as f:
+                    f.write(orjson.dumps(vectors)); temporary = Path(f.name)
                 temporary.replace(path)
             return vectors
         except Exception as error:

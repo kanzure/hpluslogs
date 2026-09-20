@@ -29,6 +29,7 @@ class PaperEmbeddingsTest(unittest.TestCase):
             params=client.embeddings.create.call_args.kwargs
             self.assertEqual(params['model'],'qwen/qwen3-embedding-8b')
             self.assertEqual(params['dimensions'],4096)
+            self.assertNotIn('encoding_format', params)  # SDK base64 + automatic float decoding
             self.assertEqual(params['extra_body']['provider']['max_price']['prompt'],0.01)
             self.assertEqual(params['extra_body']['provider']['only'],['nebius','deepinfra'])
             self.assertEqual(client.with_options.call_args.kwargs['max_retries'],0)
@@ -44,6 +45,26 @@ class PaperEmbeddingsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'4096'):
                 pe.Encoder(self.root).embed(['one','two'])
         self.assertAlmostEqual(pe.usage(self.root)['accounted_usd'],0.0000001)
+
+    def test_sdk_decodes_compact_transport_and_cache_preserves_values(self):
+        import base64
+        import json
+        import struct
+        import httpx
+        import openai
+        raw = base64.b64encode(struct.pack('<4096f', *([.125]*4096))).decode()
+        def respond(request):
+            self.assertEqual(json.loads(request.content)['encoding_format'], 'base64')
+            return httpx.Response(200,json={'object':'list','model':pe.MODEL,
+                'data':[{'object':'embedding','index':0,'embedding':raw}],
+                'usage':{'prompt_tokens':5,'total_tokens':5,'cost':.00000005}})
+        with openai.OpenAI(api_key='test',http_client=httpx.Client(transport=httpx.MockTransport(respond))) as client:
+            with patch.object(pe.openrouter,'get_sync_client',return_value=client):
+                encoder=pe.Encoder(self.root)
+                vectors=encoder.embed(['text'],key='compact')
+                self.assertEqual(vectors,[[.125]*4096])
+                with patch.object(client.embeddings,'create',side_effect=AssertionError('Cache must avoid API')):
+                    self.assertEqual(encoder.embed(['text'],key='compact'),vectors)
 
     def test_budget_reservations_are_atomic_and_survive_restart(self):
         encoder=pe.Encoder(self.root,cost_limit=0.000001)
