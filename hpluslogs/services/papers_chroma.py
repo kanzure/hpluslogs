@@ -1,5 +1,7 @@
 """Incremental, local CPU embeddings and Chroma retrieval for converted papers."""
 from concurrent.futures import ThreadPoolExecutor
+from collections import Counter
+from functools import lru_cache
 import fcntl
 import hashlib
 import json
@@ -20,7 +22,7 @@ def digest(text):
 
 
 def source_rows(data_dir):
-    with sqlite3.connect(f'file:{data_dir}/papers2_markdown.sqlite3?mode=ro', uri=True, timeout=60) as db:
+    with sqlite3.connect(f'{(data_dir / "papers2_markdown.sqlite3").resolve().as_uri()}?mode=ro', uri=True, timeout=60) as db:
         db.row_factory = sqlite3.Row
         return [dict(row) for row in db.execute("SELECT * FROM conversions WHERE status='ready' ORDER BY pdf_path")]
 
@@ -227,3 +229,96 @@ def answer(query, passages, url, model):
         'max_tokens': 1800, 'temperature': 0.1, 'chat_template_kwargs': {'enable_thinking': False}})
     response.raise_for_status()
     return response.json()['choices'][0]['message']['content']
+
+
+def audit(data_dir, host, port, page_size=500):
+    """Verify every stored passage and every current ready Markdown checkpoint.
+
+    Quiesce conversion/indexing for a conclusive final report. No embeddings or
+    model calls are made. Counts alone are insufficient: offsets, bytes, IDs,
+    revisions, source URLs and complete chunk sequences must agree.
+    """
+    coll = collection(host, port)
+    sources = {r['pdf_path']: r for r in source_rows(data_dir)}
+    def snapshot():
+        with checkpoint(data_dir) as db:
+            return {r['paper']: dict(r) for r in db.execute(
+                'SELECT * FROM indexed WHERE collection_id=? ORDER BY paper', (str(coll.id),))}
+    records = snapshot()
+    before = coll.count()
+    errors, checked = [], 0
+    error_count = 0
+    def problem(message):
+        nonlocal error_count
+        error_count += 1
+        if len(errors) < 100:
+            errors.append(message)
+    @lru_cache(maxsize=16)
+    def markdown(paper):
+        row = sources[paper]
+        path = data_dir/'papers2_markdown'/row['markdown_path']
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != row['markdown_sha256']:
+            raise ValueError('Markdown digest differs from conversion checkpoint')
+        return raw.decode('utf-8')
+    expected_total = 0
+    for paper, row in sources.items():
+        try:
+            markdown(paper)
+        except (OSError, ValueError) as error:
+            problem(f'{paper}: {error}')
+        record = records.get(paper)
+        if (not record or record['state'] != 'ready' or
+            record['revision'] != digest(RECIPE+row['markdown_sha256']) or
+            record['next_chunk'] != record['total'] or record['total'] < 1):
+            problem(f'{paper}: missing, incomplete or stale indexing checkpoint')
+        else:
+            expected_total += record['total']
+    seen = set()
+    per_paper = Counter()
+    offset = 0
+    while True:
+        page = coll.get(limit=page_size, offset=offset, include=['documents','metadatas'])
+        ids = page['ids']
+        if not ids:
+            break
+        for ident, text, meta in zip(ids, page['documents'], page['metadatas']):
+            checked += 1
+            try:
+                paper = meta['pdf_path']
+                row = sources[paper]
+                rev = digest(RECIPE+row['markdown_sha256'])
+                key = digest(paper)
+                chunk = meta['chunk']
+                record = records[paper]
+                if ident != f'{key}:{rev}:{chunk}' or meta['revision'] != rev or meta['paper_key'] != key:
+                    raise ValueError('Chunk identity or revision mismatch')
+                if ident in seen:
+                    raise ValueError('Duplicate chunk ID returned')
+                seen.add(ident)
+                if not isinstance(chunk,int) or not 0 <= chunk < record['total']:
+                    raise ValueError('Chunk number outside checkpoint range')
+                original = markdown(paper)
+                a, b = meta['char_start'], meta['char_end']
+                if not 0 <= a < b <= len(original) or text != original[a:b]:
+                    raise ValueError('Passage differs from original Markdown offsets')
+                if meta['source_url'] != BASE_URL+paper:
+                    raise ValueError('Source URL mismatch')
+                per_paper[paper] += 1
+            except (KeyError, TypeError, ValueError, OSError) as error:
+                problem(f'{ident}: {error}')
+        offset += len(ids)
+    for paper in sources:
+        if paper in records and per_paper[paper] != records[paper]['total']:
+            problem(f'{paper}: stored chunk count differs from checkpoint')
+    after = coll.count()
+    stable = before == after and records == snapshot() and sources == {r['pdf_path']:r for r in source_rows(data_dir)}
+    if not stable:
+        problem('Source/index changed during audit; stop the writers and audit again')
+    if checked != expected_total or before != expected_total:
+        problem('Stored total differs from complete current checkpoints')
+    return {'all_ready_markdown_verified': not error_count and bool(sources),
+            'ready_markdown': len(sources), 'expected_chunks': expected_total,
+            'checked_chunks': checked, 'stable_snapshot': stable,
+            'error_count': error_count, 'errors': errors,
+            'scope': 'Current ready Markdown only; conversion failures and pending PDFs require separate review.'}

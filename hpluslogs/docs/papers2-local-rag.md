@@ -119,3 +119,38 @@ The retry pins the built image and the observed container ID. If another operato
 replaces that container, the watcher stops instead of replacing their new run.
 The watcher needs the `watcher/config.json` produced by the restic handoff workflow.
 [PyMuPDF4LLM OCR support](https://pymupdf.readthedocs.io/en/latest/pymupdf4llm/ocr-plugins.html).
+
+## Verify complete Markdown indexing
+
+Run after conversion/retries finish and `papers.ready` equals `ready_markdown`.
+Stop the embedding writer for a stable audit; leave the Chroma server running.
+The command verifies every passage against Markdown bytes and offsets, identities,
+source URLs and complete chunk counts. It reports incomplete coverage as failure.
+Conversion failures remain a separate check.
+
+```bash
+ssh "$PAPERS_TARGET" "docker stop ${CHROMA_CONTAINER}-index"
+ssh "$PAPERS_TARGET" "docker run --rm --network host --user \$(id -u):\$(id -g) --mount type=bind,src=$PAPERS_PATH/data,dst=/data ${CHROMA_CONTAINER}:latest papers-chroma-audit"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_chroma_audit.json'"
+ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
+```
+
+## Embedding concurrency
+
+```bash
+# Restarts only the embedding worker; stored batches are preserved:
+python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" --workers 8
+# After PDF conversion frees CPU, increase if other host workloads permit:
+python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" --workers 16
+```
+
+## Classify conversion failures
+
+```bash
+ssh "$PAPERS_TARGET" "docker run --rm --network none --user \$(id -u):\$(id -g) --cpus 1 --memory 2g --mount type=bind,src=$PAPERS_PATH/data,dst=/data ${PAPERS_CONTAINER}:latest failures"
+ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_failure_audit.json'"
+```
+
+Separates empty files, unreadable/zero-page PDFs, mislabeled non-PDFs, password
+requirements and readable PDFs whose extraction failed. Includes source hashes
+and conversion errors; does not change source files or checkpoints.

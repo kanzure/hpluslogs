@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 from hpluslogs.services import papers_chroma as pc
 
 
@@ -30,6 +31,12 @@ class Collection:
         if self.calls == self.fail_at:
             raise RuntimeError('Interrupted request')
         self.docs.update(zip(ids, zip(documents,metadatas)))
+    def count(self):
+        return len(self.docs)
+    def get(self,limit,offset,include):
+        items=list(self.docs.items())[offset:offset+limit]
+        return {'ids':[i for i,_ in items], 'documents':[v[0] for _,v in items],
+                'metadatas':[v[1] for _,v in items]}
 
 
 class ChromaTest(unittest.TestCase):
@@ -77,6 +84,34 @@ class ChromaTest(unittest.TestCase):
         self.assertFalse(self.coll.docs)
         with pc.checkpoint(self.data) as db:
             self.assertEqual(db.execute('SELECT state FROM indexed').fetchone()[0], 'failed')
+
+    def test_audit_detects_missing_and_corrupted_passages(self):
+        row=self.row('Verified text '*100)
+        pc.index_document(self.data,self.coll,self.enc,row)
+        with patch.object(pc,'collection',return_value=self.coll), \
+             patch.object(pc,'source_rows',return_value=[row]):
+            report=pc.audit(self.data,'host',18081,page_size=2)
+            self.assertTrue(report['all_ready_markdown_verified'],report)
+            ident=next(iter(self.coll.docs))
+            original=self.coll.docs[ident]
+            self.coll.docs[ident]=('Corrupt text',original[1])
+            report=pc.audit(self.data,'host',18081,page_size=2)
+            self.assertFalse(report['all_ready_markdown_verified'])
+            self.assertTrue(any('differs from original' in e for e in report['errors']))
+            del self.coll.docs[ident]
+            report=pc.audit(self.data,'host',18081,page_size=2)
+            self.assertFalse(report['all_ready_markdown_verified'])
+            self.assertTrue(any('chunk count differs' in e for e in report['errors']))
+
+    def test_audit_detects_stale_markdown(self):
+        row=self.row('Verified text')
+        pc.index_document(self.data,self.coll,self.enc,row)
+        (self.data/'papers2_markdown'/'paper.md').write_text('Tampered text')
+        with patch.object(pc,'collection',return_value=self.coll), \
+             patch.object(pc,'source_rows',return_value=[row]):
+            report=pc.audit(self.data,'host',18081)
+            self.assertFalse(report['all_ready_markdown_verified'])
+            self.assertTrue(any('digest differs' in e for e in report['errors']))
 
 
 if __name__=='__main__':

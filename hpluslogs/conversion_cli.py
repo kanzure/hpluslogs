@@ -32,5 +32,15 @@ def progress(data_dir, **kwargs):
     click.echo(json.dumps(papers_progress.report(data_dir, **kwargs), indent=2))
 
 
+@cli.command()
+@click.pass_obj
+def failures(data_dir):
+    """Classify failed PDFs; distinguish damaged inputs from extraction failures."""
+    from hpluslogs.services import papers_failures
+    result = papers_failures.report(data_dir)
+    (data_dir/'papers2_failure_audit.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+    click.echo(json.dumps({'failed_papers':result['failed_papers'], 'classifications':result['classifications']}, indent=2))
+
+
 if __name__ == '__main__':
     cli()

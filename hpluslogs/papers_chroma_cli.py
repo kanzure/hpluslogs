@@ -27,6 +27,18 @@ def register(cli):
     def status_cmd(obj, chroma_host, chroma_port):
         click.echo(json.dumps(papers_chroma.status(obj['data_dir'], chroma_host, chroma_port), indent=2))
 
+    @cli.command('papers-chroma-audit')
+    @connection_options
+    @click.pass_obj
+    def audit_cmd(obj, chroma_host, chroma_port):
+        """Check every stored passage against current ready Markdown."""
+        result = papers_chroma.audit(obj['data_dir'], chroma_host, chroma_port)
+        path = obj['data_dir']/'papers2_chroma_audit.json'
+        path.write_text(json.dumps(result, indent=2), encoding='utf-8')
+        click.echo(json.dumps(result, indent=2))
+        if not result['all_ready_markdown_verified']:
+            raise click.ClickException('Archive audit is incomplete; inspect the saved report.')
+
     @cli.command('papers-chroma-query')
     @connection_options
     @click.argument('question')

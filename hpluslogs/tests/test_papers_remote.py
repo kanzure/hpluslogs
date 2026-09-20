@@ -75,7 +75,7 @@ class RemoteConversionTest(unittest.TestCase):
         context = self.data / 'context'; context.mkdir()
         papers_remote.build_context(context)
         files = [str(p.relative_to(context)) for p in context.rglob('*') if p.is_file()]
-        self.assertEqual(len(files), 9)
+        self.assertEqual(len(files), 10)
         self.assertIn('hpluslogs/conversion_cli.py', files)
         self.assertFalse(any('.env' in p or '/data/' in p or p.endswith('.pdf') for p in files))
 
