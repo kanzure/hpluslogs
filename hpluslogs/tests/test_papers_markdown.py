@@ -23,7 +23,7 @@ class MarkdownTest(unittest.TestCase):
         self.addCleanup(patch.stopall)
 
     def fake_convert(self, command, **kwargs):
-        Path(command[-1]).write_text('# Scientific paper\n\nExtracted text.\n', encoding='utf-8')
+        Path(command[3]).write_text('# Scientific paper\n\nExtracted text.\n', encoding='utf-8')
         return NS(returncode=0)
 
     def test_resumes_and_reconverts_changed_pdf_or_output(self):
@@ -68,7 +68,7 @@ class MarkdownTest(unittest.TestCase):
 
     def test_empty_conversion_fails(self):
         def empty(command, **kwargs):
-            Path(command[-1]).write_text('  \n')
+            Path(command[3]).write_text('  \n')
             return NS(returncode=0)
         self.runner.side_effect = empty
         self.assertIn('No Markdown', md.convert_one(self.data, self.source, 'r', 10)[1])

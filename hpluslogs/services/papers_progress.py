@@ -35,7 +35,7 @@ def report(data_dir, days=30, searches=0, index_multiplier=1.0, now=None):
     rates = []
     failed_this_pass = sum(r['status'] == 'failed' and r['updated'] >= (start or 0) for r in rows)
     remaining = len(sources) - len(ready) - failed_this_pass
-    for minutes in (15, 60, 120):
+    for minutes in (5, 15, 60, 120):
         cutoff = max(now - minutes * 60, start or 0)
         elapsed = now - cutoff
         completed = sum(r['status'] in ('ready', 'failed') and r['updated'] > cutoff for r in rows)

@@ -1,7 +1,10 @@
 """One isolated PyMuPDF conversion; called by papers-markdown, never uploads."""
 from pathlib import Path
+import hashlib
+import json
 import os
 import sys
+import tempfile
 
 
 def configure_inference_threads(threads=1):
@@ -26,6 +29,58 @@ def configure_inference_threads(threads=1):
     ort.InferenceSession = BoundedInferenceSession
 
 
+def cached_markdown(document, cache_dir, render, page_size=20):
+    """Commit complete page batches; interrupted batches are safe to repeat."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    output = []
+    for first in range(0, len(document), page_size):
+        end = min(first+page_size, len(document))
+        path = cache_dir/f'{first:08d}-{end:08d}.json'
+        record = None
+        try:
+            candidate = json.loads(path.read_text(encoding='utf-8'))
+            if (candidate['pages'] == [first,end] and isinstance(candidate['markdown'],str)
+                    and hashlib.sha256(candidate['markdown'].encode()).hexdigest() == candidate['sha256']):
+                record = candidate
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        if record is None:
+            text = render(document, pages=list(range(first,end)), header=False, footer=False)
+            if not isinstance(text,str):
+                raise ValueError('Page batch did not return Markdown text.')
+            record = {'pages':[first,end], 'markdown':text,
+                      'sha256':hashlib.sha256(text.encode()).hexdigest()}
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=cache_dir,
+                                             suffix='.tmp', delete=False) as handle:
+                json.dump(record,handle)
+                temp = Path(handle.name)
+            temp.replace(path)
+        output.append(record['markdown'])
+    return '\n\n'.join(output)
+
+
+def convert_with_page_cache(source, source_path, cache_root, expected_sha, settings, render):
+    import pymupdf
+    probe = pymupdf.open(source) if isinstance(source,str) else source
+    long_document = len(probe) >= 200
+    if isinstance(source,str):
+        probe.close()
+    if not long_document:
+        return render(source, header=False, footer=False)
+    # Parse an immutable byte snapshot so source edits cannot contaminate saved batches.
+    raw = source_path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha:
+        raise ValueError('PDF changed before page-batch conversion.')
+    try:
+        tessdata = Path(pymupdf.get_tessdata())/'eng.traineddata'
+        ocr = hashlib.sha256(tessdata.read_bytes()).hexdigest()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        ocr = 'unavailable'
+    cache_key = hashlib.sha256((expected_sha+settings+ocr+':pages20-v1').encode()).hexdigest()
+    with pymupdf.open(stream=raw,filetype='pdf') as document:
+        return cached_markdown(document, cache_root/cache_key, render)
+
+
 def main():
     configure_inference_threads(int(os.environ.get('PAPERS_INFERENCE_THREADS', '1')))
     import pymupdf4llm
@@ -36,7 +91,10 @@ def main():
         # Python can open them losslessly; keep the same document parser.
         import pymupdf
         source = pymupdf.open(stream=Path(source).read_bytes(), filetype='pdf')
-    markdown = pymupdf4llm.to_markdown(source, header=False, footer=False)
+    if len(sys.argv) > 3:
+        markdown = convert_with_page_cache(source, Path(sys.argv[1]), Path(sys.argv[3]), sys.argv[4], sys.argv[5], pymupdf4llm.to_markdown)
+    else:
+        markdown = pymupdf4llm.to_markdown(source, header=False, footer=False)
     if not isinstance(markdown, str) or not markdown.strip():
         raise ValueError('No Markdown text extracted; inspect the PDF/OCR result.')
     Path(sys.argv[2]).write_text(markdown, encoding='utf-8')

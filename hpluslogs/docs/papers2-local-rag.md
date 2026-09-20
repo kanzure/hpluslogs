@@ -154,3 +154,26 @@ ssh "$PAPERS_TARGET" "cat '$PAPERS_PATH/data/papers2_failure_audit.json'"
 Separates empty files, unreadable/zero-page PDFs, mislabeled non-PDFs, password
 requirements and readable PDFs whose extraction failed. Includes source hashes
 and conversion errors; does not change source files or checkpoints.
+
+## Long-document resume checkpoints
+
+PDFs with 200 or more pages now save 20-page batches in `data/papers2_page_cache`.
+Cache keys include source bytes, converter settings and English OCR data. Each
+batch is hash checked and written atomically. Timeouts/restarts reuse finished
+batches; completed Markdown files are still skipped by the existing manifest.
+Keep this directory on the remote host across retries.
+
+```bash
+# Count completed page batches (not completed papers):
+ssh "$PAPERS_TARGET" "find '$PAPERS_PATH/data/papers2_page_cache' -name '*.json' -type f | wc -l"
+# Retry a stopped conversion with more time; preserve remote data/checkpoints:
+python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-deploy "${PAPERS_REMOTE[@]}" --workers 32 --timeout 1800 --transfer tar
+```
+
+Verified on 201 pages: 11 saved batches, all page markers retained, identical
+Markdown on resume; initial 28.9 seconds, resumed 0.9 seconds. This measures cache
+reuse, not general conversion throughput. The scheduled OCR retry uses 32 workers.
+
+Conversion progress includes 5-, 15-, 60- and 120-minute rates. Use the short window
+when the remaining work changes from articles to long books; timeouts and OCR
+retries can still make the final tail slower than an extrapolated ETA.

@@ -75,7 +75,8 @@ def convert_one(data_dir, path, settings, timeout):
             # PyMuPDF is not thread-safe; each document runs in its own process,
             # with a deadline so one bad PDF cannot stall the entire collection.
             worker = Path(__file__).with_name('paper_conversion_worker.py')
-            completed = subprocess.run([sys.executable, str(worker), str(path.resolve()), str(result.resolve())],
+            completed = subprocess.run([sys.executable, str(worker), str(path.resolve()), str(result.resolve()),
+                                        str((data_dir/'papers2_page_cache').resolve()), digest, settings],
                                        capture_output=True, timeout=timeout)
             if completed.returncode:
                 detail = completed.stderr.decode('utf-8', errors='replace')[-2000:]

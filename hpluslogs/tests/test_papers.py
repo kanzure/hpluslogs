@@ -150,7 +150,7 @@ class PapersTest(unittest.TestCase):
     def test_budget_blocks_before_client_creation(self):
         path = self.pdf()
         def extract(command, **kwargs):
-            Path(command[-1]).write_text('# Paper\nScientific content')
+            Path(command[3]).write_text('# Paper\nScientific content')
             return NS(returncode=0)
         with patch.object(papers_markdown.subprocess, 'run', side_effect=extract):
             papers_markdown.convert_one(self.data, path, 'test', 10)
