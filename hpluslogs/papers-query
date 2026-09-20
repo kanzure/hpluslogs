@@ -13,7 +13,7 @@ No virtualenv activation needed. Settings: hpluslogs/.papers-query.env
 (or PAPERS_QUERY_CONFIG). See .papers-query.env.example for first-time setup.
 
 Optional environment overrides:
-  PAPERS_TOP_K=100           Maximum retrieved passages (any positive integer)
+  PAPERS_TOP_K=300           Maximum retrieved passages (any positive integer)
   PAPERS_OUTPUT_NAME=name    Filename without extension (default: timestamp)
   PAPERS_LLM_MODEL=model    Worker model name
   PAPERS_PROMPT_FRAGMENT='Compare methods and suggest experiments'
@@ -56,7 +56,7 @@ cd "$project_dir/.."
 "$python" -m hpluslogs.cli --data-dir "${PAPERS_DATA_DIR:-$project_dir/data}" papers-remote-query \
     --host "$PAPERS_HOST" --user "$PAPERS_USER" --path "$PAPERS_PATH" \
     --model "$PAPERS_LLM_MODEL" --llm-url "${PAPERS_LLM_URL:-http://127.0.0.1:8080/v1}" \
-    --chroma-port "${PAPERS_CHROMA_PORT:-18081}" --top-k "${PAPERS_TOP_K:-100}" \
+    --chroma-port "${PAPERS_CHROMA_PORT:-18081}" --top-k "${PAPERS_TOP_K:-300}" \
     --output-name "$name" --upload \
     "${analysis_options[@]}" \
     --remote-user "${PAPERS_PUBLISH_USER:-bryan}" --remote-host "${PAPERS_PUBLISH_HOST:-gnusha.org}" \

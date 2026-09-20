@@ -115,7 +115,7 @@ here in `hpluslogs/.papers-query.env`; no virtualenv activation needed.
 hpluslogs/papers-query 'genetic barcodes and barcoding'
 ```
 
-Uses 100 passages by default. Prints public HTML and Markdown URLs when uploading
+Uses 300 passages by default. Prints public HTML and Markdown URLs when uploading
 finishes. Saves answer/context files in `hpluslogs/data/outputs/` with unique
 timestamp names. Transfer route: query worker → this machine → publishing host.
 
@@ -170,7 +170,7 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-query \
   --host bigboy.local --user kanzure \
   --path /home/kanzure/hpluslogs-papers-conversion \
   --model qwen-flash-next-uncensored-sglang \
-  --top-k 100 --output-name qwen-genetic-barcoding \
+  --top-k 300 --output-name qwen-genetic-barcoding \
   'genetic barcodes and barcoding'
 ```
 
