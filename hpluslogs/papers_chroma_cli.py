@@ -71,10 +71,22 @@ def register(cli):
         saved = dest/(name+'.json')
         saved.write_text(json.dumps(result, indent=2), encoding='utf-8')
         if passages and not nollm:
-            result['answer'] = papers_chroma.answer(question, passages, llm_url, model,
-                brief=brief, prompt_fragment=prompt_fragment, max_answer_tokens=max_answer_tokens)
             result['generation'] = {'mode': 'brief' if brief else 'report', 'model': model,
-                'prompt_fragment': prompt_fragment, 'max_answer_tokens': max_answer_tokens or (1800 if brief else 8192)}
+                'prompt_fragment': prompt_fragment, 'max_answer_tokens': max_answer_tokens or (1800 if brief else 8192),
+                'complete': True}
+            try:
+                result['answer'] = papers_chroma.answer(question, passages, llm_url, model,
+                    brief=brief, prompt_fragment=prompt_fragment, max_answer_tokens=max_answer_tokens)
+            except papers_chroma.IncompletePaperAnswer as error:
+                result['answer'] = error.content
+                result['generation'].update(complete=False, finish_reason=error.finish_reason)
+                partial_json = dest/(name+'.partial.json')
+                partial_json.write_text(json.dumps(result, indent=2), encoding='utf-8')
+                partial_md = dest/(name+'.partial.md')
+                partial_md.write_text('> **Incomplete report: output token limit reached.**\n\n'+error.content, encoding='utf-8')
+                click.echo(f'Partial report saved: {partial_json}\nPartial Markdown saved: {partial_md}', err=True)
+            except click.ClickException as error:
+                raise click.ClickException(f'{error.format_message()}\nSaved retrieval: {saved}') from error
             saved.write_text(json.dumps(result, indent=2), encoding='utf-8')
         click.echo(json.dumps(result, indent=2))
 

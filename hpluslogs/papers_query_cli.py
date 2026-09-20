@@ -27,6 +27,11 @@ def publishing_options(fn):
 def show_outputs(result, report):
     click.echo(result.get('answer') or f'Retrieved {len(result["passages"])} passages.')
     click.echo(json.dumps(report, indent=2))
+    if report.get('complete') is False:
+        raise click.ClickException(
+            f'Output token limit reached. Partial result saved: {report["result_json"]}\n'
+            'Local Markdown/HTML paths are listed above; nothing was uploaded. '
+            'Increase --max-answer-tokens / PAPERS_MAX_ANSWER_TOKENS for a longer retry.')
 
 
 def register(cli):
@@ -71,6 +76,10 @@ def register(cli):
         except (OSError, ValueError) as error:
             raise click.ClickException(f'Remote paper query failed: {error}') from error
         report = paper_results.publish_result(obj['data_dir'], result, name, **options)
+        report['remote_result_json'] = remote.location('data/papers2_local_queries/'+name+'.json')
+        if report.get('complete') is False:
+            report['remote_partial_json'] = remote.location('data/papers2_local_queries/'+name+'.partial.json')
+            report['remote_partial_markdown'] = remote.location('data/papers2_local_queries/'+name+'.partial.md')
         show_outputs(result, report)
 
     @cli.command('papers-publish')

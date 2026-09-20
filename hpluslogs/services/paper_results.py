@@ -44,6 +44,9 @@ def validate_result(result):
         raise click.ClickException('Expected a papers-chroma-query JSON result with question and passages.')
     if 'answer' in result and not isinstance(result['answer'], str):
         raise click.ClickException('The saved answer must be Markdown text.')
+    generation = result.get('generation', {})
+    if not isinstance(generation, dict) or ('complete' in generation and not isinstance(generation['complete'], bool)):
+        raise click.ClickException('Invalid saved generation status.')
     for passage in result['passages']:
         if not isinstance(passage, dict) or not isinstance(passage.get('content'), str):
             raise click.ClickException('Invalid saved paper passage.')
@@ -132,6 +135,11 @@ def publish_result(data_dir, result, name, css_file='wrap.css', upload=True,
     """Save JSON, answer and context; render all files before any remote writes."""
     name = output_name(name)
     result = validate_result(result)
+    incomplete = result.get('generation', {}).get('complete') is False
+    if incomplete:
+        upload = False
+        if not name.endswith('.partial'):
+            name += '.partial'
     css = preflight(css_file, remote_user, remote_host, remote_path, upload)
     data_dir = Path(data_dir)
     saved = data_dir/'papers2_local_queries'/(name+'.json')
@@ -151,6 +159,8 @@ def publish_result(data_dir, result, name, css_file='wrap.css', upload=True,
         excerpts.append(f'## Source {i}: {title}\n\n<{url}>\n\n{passage["content"]}')
     context = heading+'\n\n'.join(excerpts) if excerpts else heading+'No matching passages found.\n'
     answer = result.get('answer')
+    if incomplete and answer:
+        answer = '> **Incomplete report: output token limit reached.**\n\n'+answer
     markdown = (heading+answer_markdown(answer, result['passages'])+'\n\n## Sources\n\n'+'\n'.join(sources)+'\n') if answer else context
     for suffix, content in (('.context', context), ('', markdown)):
         try:
@@ -169,4 +179,5 @@ def publish_result(data_dir, result, name, css_file='wrap.css', upload=True,
             if not scp.upload_file(path, remote_user, remote_host, remote_path, path.name):
                 raise click.ClickException(f'Upload failed for {path.name}; rerun papers-publish with {saved} to retry without model calls.')
         destination = f'{remote_user}@{remote_host}:{remote_path}'
-    return {'result_json': str(saved), 'files': [str(p) for p in files], 'uploaded_to': destination}
+    return {'result_json': str(saved), 'files': [str(p) for p in files], 'uploaded_to': destination,
+            'complete': not incomplete}

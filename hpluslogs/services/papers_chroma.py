@@ -257,6 +257,14 @@ def retrieve(data_dir, host, port, query, top_k=8):
     return passages
 
 
+class IncompletePaperAnswer(click.ClickException):
+    """Carry received model text to the caller so it can be persisted."""
+    def __init__(self, content, finish_reason):
+        super().__init__('Paper report reached its token limit.')
+        self.content = content
+        self.finish_reason = finish_reason
+
+
 def answer(query, passages, url, model, brief=False, prompt_fragment='', max_answer_tokens=None):
     import requests
     context = '\n\n'.join(f"[{i}] {unquote(p['metadata']['pdf_path'])}\nSource: {p['metadata']['source_url']}\n{p['content']}" for i,p in enumerate(passages,1))
@@ -269,11 +277,11 @@ def answer(query, passages, url, model, brief=False, prompt_fragment='', max_ans
         'chat_template_kwargs': {'enable_thinking': False}})
     response.raise_for_status()
     choice = response.json()['choices'][0]
-    if choice.get('finish_reason') == 'length':
-        raise click.ClickException('Paper report exceeded its token limit; increase --max-answer-tokens. Retrieved passages remain saved; incomplete output was not published.')
     content = choice['message'].get('content')
     if not isinstance(content, str) or not content.strip():
         raise click.ClickException('The paper model returned no answer; retrieved passages remain saved.')
+    if choice.get('finish_reason') == 'length':
+        raise IncompletePaperAnswer(content, 'length')
     return content
 
 
