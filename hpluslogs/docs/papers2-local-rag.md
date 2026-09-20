@@ -189,11 +189,38 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-query \
 - Report controls (also available on `papers-chroma-query`): `--prompt-fragment`,
   `--brief`, `--max-answer-tokens`. Default: one extensive LLM pass after retrieval;
   no extra baseline-model call. `--nollm` skips the report entirely.
-- Failed/empty/truncated model responses are not published. Retrieved passages
-  remain in the worker's saved JSON. Brief mode defaults to 1,800 output tokens.
+- Truncated model responses are saved with `generation.complete=false` and
+  `finish_reason=length`. The wrapper prints local/remote paths and exits nonzero;
+  incomplete results are not uploaded. Brief mode defaults to 1,800 output tokens.
 - Paper rendering normalizes adjacent numeric citations, lists and section headings
   before Pandoc. Re-run `papers-publish` on saved JSON to repair older HTML without
   repeating retrieval or model calls; the saved model response is preserved.
+
+## Token limit reached: saved partial reports
+
+- Worker: `$PAPERS_PATH/data/papers2_local_queries/NAME.partial.{json,md}`;
+  `NAME.json` also contains the partial answer and retrieved passages.
+- Local: `hpluslogs/data/papers2_local_queries/NAME.partial.json` and
+  `hpluslogs/data/outputs/NAME.partial.{md,html,context.md,context.html}`.
+- Partial Markdown/HTML is marked incomplete. Existing complete local outputs
+  and public pages are preserved. The worker's partial snapshot survives a
+  successful retry using the same name. No model call is retried automatically.
+- Empty model responses retain retrieved passages and print the worker JSON path.
+- This preserves text returned by the model; a disconnected non-streaming request
+  cannot save response text it never received.
+
+```bash
+# Read a partial report from a future truncated run (replace NAME):
+less hpluslogs/data/outputs/NAME.partial.md
+
+# Generate again with a larger output budget:
+PAPERS_OUTPUT_NAME=directed-evolution PAPERS_MAX_ANSWER_TOKENS=16384 \
+  hpluslogs/papers-query 'directed evolution'
+```
+
+Before this fix, token-limit failures saved only retrieved passages and discarded
+the answer. The earlier `directed-evolution.json` is retrieval-only; it has no
+recoverable model text in the saved result.
 
 ## Render/upload saved results without repeating model calls
 
