@@ -131,16 +131,30 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-query \
 
 ## Render/upload saved results without repeating model calls
 
+Run on your local machine, which can SSH to both hosts. Transfer route:
+`bigboy → local machine → gnusha.org (served by diyhpl.us)`.
+The worker needs no publishing-host access. Change `RESULT` to any saved result name.
+
 ```bash
+cd ~/code/hplusroadmap
+source hpluslogs/venv/bin/activate
+RESULT=qwen-genetic-barcoding
 mkdir -p hpluslogs/data/papers2_local_queries
-scp kanzure@bigboy.local:/home/kanzure/hpluslogs-papers-conversion/data/papers2_local_queries/qwen-genetic-barcoding.json \
+scp "kanzure@bigboy.local:/home/kanzure/hpluslogs-papers-conversion/data/papers2_local_queries/$RESULT.json" \
   hpluslogs/data/papers2_local_queries/
 python -m hpluslogs.cli --data-dir hpluslogs/data papers-publish \
-  hpluslogs/data/papers2_local_queries/qwen-genetic-barcoding.json
+  "hpluslogs/data/papers2_local_queries/$RESULT.json" \
+  --remote-user bryan --remote-host gnusha.org \
+  --remote-path '~/public_html/irc/chatgpt/papers2/'
+printf 'https://diyhpl.us/~bryan/irc/chatgpt/papers2/%s.html\n' "$RESULT"
 ```
 
 Append `--no-upload` for local rendering only. Reuse `papers-publish` after an
 upload failure; all local files are rendered before uploading.
+
+Verified September 20, 2026: saved genetic-barcoding LLM answer, answer/context
+Markdown and HTML, and CSS published through this route; all five public files
+matched the local files byte-for-byte. No new model calls.
 
 ## Retrieve source passages (raw JSON)
 
