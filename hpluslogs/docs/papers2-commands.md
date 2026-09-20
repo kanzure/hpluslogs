@@ -303,3 +303,32 @@ processes; preserve its partial directory; move `papers2-restic` to `papers2`;
 rerun `papers-remote-deploy`. Matching PDFs are skipped, saved Markdown/checkpoint
 are transferred, and conversion starts. Do not rename directories while tar or
 conversion is still running. Keep the completed Markdown and SQLite manifest.
+
+
+## Automatic handoff from remote restic restore to conversion
+
+Cancel the prior transfer first. Requires user systemd with lingering enabled.
+No repo password is copied; waits for restore processes to exit and independently
+checks every expected PDF SHA-256 before switching directories and starting Docker.
+Also verifies the saved Markdown checkpoint. Preserves the partial transfer directory.
+
+```bash
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-watch-restore \
+  "${PAPERS_REMOTE[@]}" --staging-name papers2-restic --workers 48 --timeout 600
+```
+
+The watcher lives on the destination and survives SSH disconnection. Once setup
+prints `Watcher ready`, the local terminal can be closed. Errors are logged and
+retried by systemd; mismatched/incomplete PDFs are never silently accepted.
+
+## Watcher status / logs
+
+```bash
+ssh "$PAPERS_TARGET" "systemctl --user status ${PAPERS_CONTAINER}-restore-watch.service --no-pager"
+ssh "$PAPERS_TARGET" "journalctl --user -u ${PAPERS_CONTAINER}-restore-watch.service -n 30 --no-pager"
+ssh "$PAPERS_TARGET" "docker logs --tail 30 $PAPERS_CONTAINER"
+```
+
+After handoff, use `papers-remote-progress` for conversion ETA. The completed
+watcher unit can disappear (`--collect`); Docker logs remain available and the
+last watcher state persists in remote `data/papers2_restore_watch.json`.

@@ -211,3 +211,58 @@ def pull(data_dir, remote):
         (tmp / 'manifest.sqlite3').replace(target)
         remote.rsync(remote.location('data/papers2_conversion_run.json'), str(data_dir) + '/')
         click.echo('Pulled Markdown and checkpoint. Local PDFs are unchanged; no xAI operations performed.')
+
+
+def watch_restore(data_dir, remote, staging_name='papers2-restic', workers=48, timeout=600):
+    """Arm a durable host-side watcher, then seed checkpoints and PDF checksums."""
+    import uuid
+    from concurrent.futures import ThreadPoolExecutor
+    if Path(staging_name).name != staging_name or staging_name in ('.', '..', 'papers2'):
+        raise click.BadParameter('Use a staging directory name distinct from papers2.')
+    remote.require_stopped()
+    service = remote.name + '-restore-watch'
+    active = remote.command('systemctl', '--user', 'show', service+'.service',
+                            '--property=ActiveState', '--value', capture=True).stdout.strip()
+    if active in ('active', 'activating'):
+        raise click.ClickException('The restore watcher is already active; inspect its state/logs.')
+    with papers.exclusive(data_dir), tempfile.TemporaryDirectory(prefix='papers-watch-') as tmp:
+        tmp = Path(tmp)
+        remote.command('mkdir', '-p', remote.path+'/data', remote.path+'/watcher')
+        script = Path(__file__).resolve().parents[1]/'scripts/watch_papers_restore.py'
+        remote.rsync(str(script), remote.location('watcher/watch_papers_restore.py'))
+        ready_path = remote.path+'/data/restore-seed-'+uuid.uuid4().hex+'.ready'
+        config = {'data_dir': remote.path+'/data', 'staging': remote.path+'/data/'+staging_name,
+                  'seed_ready': ready_path, 'source_manifest': remote.path+'/data/papers2_source_manifest.json',
+                  'container': remote.name, 'workers': workers,
+                  'docker_command': ['docker', 'run', '-d', '--init', '--name', remote.name,
+                                     '--label', 'hpluslogs.role=paper-conversion', '--restart', 'no',
+                                     '--stop-timeout', str(timeout+30), '--cpus', str(workers),
+                                     *remote.runtime_args(), remote.image, 'convert',
+                                     '--workers', str(workers), '--timeout', str(timeout)]}
+        (tmp/'restore-watch.json').write_text(json.dumps(config, indent=2))
+        remote.rsync(str(tmp/'restore-watch.json'), remote.location('watcher/config.json'))
+        # systemd runs on the destination; no local process/SSH connection must survive.
+        remote.command('systemd-run', '--user', '--collect', '--unit', service,
+                       '--property=Restart=on-failure', '--property=RestartSec=60',
+                       '--property=StartLimitIntervalSec=0', '/usr/bin/python3', '-u',
+                       remote.path+'/watcher/watch_papers_restore.py', '--config', remote.path+'/watcher/config.json')
+        click.echo('Remote watcher armed. Preparing checksum inventory and saved Markdown.', err=True)
+        sources = list(papers.pdf_files(data_dir/'papers2'))
+        def entry(path):
+            return {'path': papers.path_key(path.relative_to(data_dir/'papers2').as_posix()),
+                    'size': path.stat().st_size, 'sha256': papers.sha256(path)}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            inventory = list(pool.map(entry, sources))
+        (tmp/'source-manifest.json').write_text(json.dumps(inventory))
+        remote.rsync(str(tmp/'source-manifest.json'), remote.location('data/papers2_source_manifest.json'))
+        backups = data_dir/'papers2_checkpoints'; backups.mkdir(exist_ok=True)
+        checkpoint = backups/f'watch-restore-{time.time_ns()}.sqlite3'
+        snapshot(data_dir/'papers2_markdown.sqlite3', checkpoint)
+        remote.rsync(str(data_dir/'papers2_markdown')+'/', remote.location('data/papers2_markdown/'),
+                     '-z', '--exclude=.*', '--ignore-existing')
+        remote.rsync(str(checkpoint), remote.location('data/conversion-seed.sqlite3'))
+        q = shlex.quote
+        remote.shell(f'set -eu; if [ ! -f {q(remote.path+"/data/papers2_markdown.sqlite3")} ]; then '
+                     f'mv {q(remote.path+"/data/conversion-seed.sqlite3")} '
+                     f'{q(remote.path+"/data/papers2_markdown.sqlite3")}; fi; touch {q(ready_path)}')
+        click.echo(f'Watcher ready: {service}. It will verify the restored PDFs and start {workers} workers automatically.')

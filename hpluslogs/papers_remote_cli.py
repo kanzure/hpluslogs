@@ -14,7 +14,7 @@ def register(cli):
     def invoke(action, obj, host, user, path, **kwargs):
         remote = papers_remote.Remote(host, user, path)
         try:
-            if action in ('deploy', 'pull'):
+            if action in ('deploy', 'pull', 'watch_restore'):
                 return getattr(papers_remote, action)(obj['data_dir'], remote, **kwargs)
             return getattr(papers_remote, action)(remote, **kwargs)
         except (subprocess.CalledProcessError, FileNotFoundError) as error:
@@ -53,3 +53,13 @@ def register(cli):
     def pull(obj, **kwargs):
         """Pull Markdown/checkpoint from a stopped container; back up local state."""
         invoke('pull', obj, **kwargs)
+
+    @cli.command('papers-remote-watch-restore')
+    @connection_options
+    @click.option('--staging-name', default='papers2-restic', show_default=True)
+    @click.option('--workers', type=click.IntRange(min=1), default=48)
+    @click.option('--timeout', type=click.IntRange(min=1), default=600)
+    @click.pass_obj
+    def watch_restore(obj, **kwargs):
+        """Watch a remote restic restore, preserve local progress, then start conversion."""
+        invoke('watch_restore', obj, **kwargs)

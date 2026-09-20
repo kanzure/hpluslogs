@@ -13,6 +13,27 @@ These are capacity estimates, not benchmarked peak resident memory. Local
 Chroma ingestion/query support for the paper archive has not been implemented;
 the current `papers-query` command uses xAI.
 
+## Capacity of the current conversion host
+
+**Yes: `bigboy.local` has enough RAM for the projected Chroma database.**
+Measured on 2026-09-19 (America/Chicago):
+
+| Host memory | Value |
+| --- | ---: |
+| Physical RAM | 400,362,168,320 bytes / 372.9 GiB |
+| Available RAM at inspection | 302,392,160,256 bytes / 281.6 GiB |
+| Chroma allocation, 800/100 chunks and 4,096 dimensions | 16–32 GiB |
+| Chroma allocation, 175/20 chunks and 4,096 dimensions | 64–96 GiB |
+
+Both configurations fit comfortably at the observed available-memory level.
+Availability changes with other workloads, especially parallel PDF conversion.
+This is database capacity, not a guarantee that arbitrary embedding/answering
+models and concurrent jobs will all fit. Recheck before launching additional jobs:
+
+```bash
+ssh "$PAPERS_USER@$PAPERS_HOST" 'free -h'
+```
+
 ## Measured input — 2026-09-20 01:20 UTC
 
 | Measurement | Value |
