@@ -1,5 +1,14 @@
 # Local Chroma paper RAG
 
+## MiniLM deployment retired — September 19, 2026
+
+User requested the project's OpenRouter Qwen3 Embedding 8B path at 4,096 dimensions.
+MiniLM ingestion is stopped, restart disabled, and `papers2_minilm_v1` deleted
+(695,841 vectors). **Commands below describe the retired prototype; do not restart
+its indexer or deploy it.** PDF conversion continues. Replacement embedding is on
+hold for the measured cost estimate; no paid embedding requests have been made.
+See [OpenRouter estimates](papers2-openrouter-costs.md).
+
 ## Remote parameters
 
 ```bash

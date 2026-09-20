@@ -1,0 +1,112 @@
+{
+  "measured_at": "2026-09-20T03:25:43.416707+00:00",
+  "pdf_count": 11783,
+  "ready_markdown_count": 11675,
+  "markdown_bytes": 1180702107,
+  "converted_source_pdf_bytes": 27538235464,
+  "total_source_pdf_bytes": 27865369171,
+  "tokenizer": "o200k_base",
+  "measured_tokens": 303289165,
+  "bytes_per_token": 3.892991386619433,
+  "billing_tokenizer": "/app/qwen3-tokenizer.json",
+  "measured_billing_tokens_before_overlap": 320160527,
+  "projections": [
+    {
+      "chunk_size": 800,
+      "overlap": 100,
+      "dimensions": 4096,
+      "measured_chunks": 437466,
+      "full_archive_vectors_range": [
+        441513,
+        442663
+      ],
+      "estimated_measured_input_tokens": 365549568,
+      "full_archive_input_tokens_range": [
+        368931098,
+        369892025
+      ],
+      "one_time_embedding_cost_usd": [
+        {
+          "price_per_million": 0.01,
+          "range": [
+            3.68931098,
+            3.69892025
+          ]
+        },
+        {
+          "price_per_million": 0.04,
+          "range": [
+            14.75724392,
+            14.795681
+          ]
+        }
+      ],
+      "fp32_payload_gib_range": [
+        6.7369537353515625,
+        6.7545013427734375
+      ],
+      "planning_ram_gib_range": [
+        15.473907470703125,
+        15.509002685546875
+      ]
+    },
+    {
+      "chunk_size": 175,
+      "overlap": 20,
+      "dimensions": 4096,
+      "measured_chunks": 1961027,
+      "full_archive_vectors_range": [
+        1979168,
+        1984323
+      ],
+      "estimated_measured_input_tokens": 363282769,
+      "full_archive_input_tokens_range": [
+        366643330,
+        367598298
+      ],
+      "one_time_embedding_cost_usd": [
+        {
+          "price_per_million": 0.01,
+          "range": [
+            3.6664333,
+            3.67598298
+          ]
+        },
+        {
+          "price_per_million": 0.04,
+          "range": [
+            14.6657332,
+            14.70393192
+          ]
+        }
+      ],
+      "fp32_payload_gib_range": [
+        30.19970703125,
+        30.278366088867188
+      ],
+      "planning_ram_gib_range": [
+        62.3994140625,
+        62.556732177734375
+      ]
+    }
+  ],
+  "assumptions": [
+    "Fixed token windows, one vector per chunk; no chunk crosses a paper boundary.",
+    "Range spans extrapolation by paper count and source PDF bytes, not a confidence interval.",
+    "Planning RAM = 2 GiB base allowance + 2x FP32 vector payload; a heuristic, not measured RSS.",
+    "Excludes embedding/generation model RAM or VRAM and large ingestion batches.",
+    "o200k_base is the project chunking tokenizer, not the Qwen tokenizer.",
+    "Billing-tokenizer counts are measured before overlap; overlap is estimated per paper using its tokenizer ratio, plus one special token per chunk.",
+    "Provider tokenization, retries, credit-purchase fees and future OCR repairs can change the invoice. These are one-time embedding costs, not monthly storage fees.",
+    "Counts size-matching ready outputs; no source hashes rechecked and no embeddings generated."
+  ],
+  "model": "qwen/qwen3-embedding-8b",
+  "billing_tokenizer_revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af",
+  "pricing_source": "https://openrouter.ai/api/v1/models/qwen/qwen3-embedding-8b/endpoints",
+  "pricing_checked_local_date": "2026-09-19",
+  "provider_prices_per_million": {
+    "Nebius": 0.01,
+    "DeepInfra": 0.01,
+    "SiliconFlow": 0.04
+  }
+}

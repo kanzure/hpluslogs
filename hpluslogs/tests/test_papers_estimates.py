@@ -1,5 +1,5 @@
 import unittest
-from hpluslogs.scripts.estimate_papers_chroma import chunk_count
+from hpluslogs.scripts.estimate_papers_chroma import chunk_count, estimated_input_tokens
 from hpluslogs.scripts.papers_transfer_progress import summarize
 
 
@@ -12,6 +12,11 @@ class CapacityEstimateTest(unittest.TestCase):
         self.assertEqual(chunk_count(1501, 800, 100), 3)
         with self.assertRaises(ValueError):
             chunk_count(100, 800, 800)
+
+    def test_billing_includes_repeated_overlap_and_special_tokens(self):
+        self.assertEqual(estimated_input_tokens(0,0,800,100),0)
+        self.assertEqual(estimated_input_tokens(800,1000,800,100),1001)
+        self.assertEqual(estimated_input_tokens(1500,1800,800,100),1922)
 
     def test_transfer_excludes_extras_and_outdated_complete_files(self):
         expected = {'ready': [100, 10], 'partial': [200, 20], 'old': [100, 30], 'missing': [50, 40]}

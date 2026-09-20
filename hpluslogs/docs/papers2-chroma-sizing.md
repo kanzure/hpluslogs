@@ -9,9 +9,10 @@ and queries**. This excludes the embedding model and answer-generation model.
 Using the existing IRC-sized **175-token chunks with 20-token overlap** instead
 raises the estimate substantially: budget **64–96 GiB** at 4,096 dimensions.
 
-These are capacity estimates, not benchmarked peak resident memory. Local
-Chroma ingestion/query support for the paper archive has not been implemented;
-the current `papers-query` command uses xAI.
+These are capacity estimates, not benchmarked peak resident memory. The MiniLM
+prototype was retired at the user's request; replacement embeddings will use the
+project's OpenRouter Qwen3 Embedding 8B path. See the updated
+[OpenRouter estimates](papers2-openrouter-costs.md).
 
 ## Capacity of the current conversion host
 
@@ -110,8 +111,9 @@ xAI alternative: [papers2-xai-costs.md](papers2-xai-costs.md).
 
 ## Local deployment implemented September 19, 2026
 
-The running paper index uses CPU MiniLM-L6-v2, 384-dimensional vectors and
+The retired paper index used CPU MiniLM-L6-v2, 384-dimensional vectors and
 224-wordpiece chunks with 32 overlap. The Qwen scenarios above remain sizing
-alternatives, not the deployed model. Chroma has a 32 GiB container memory ceiling;
+alternatives. The MiniLM collection has been deleted and ingestion stopped.
+Chroma has a 32 GiB container memory ceiling;
 the four-worker embedding process has a 16 GiB ceiling. Initial observed embedding
 RAM was about 1.7 GiB. See [local RAG commands](papers2-local-rag.md).
