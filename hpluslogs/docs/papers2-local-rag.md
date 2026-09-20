@@ -177,7 +177,9 @@ python -m hpluslogs.cli --data-dir hpluslogs/data papers-remote-query \
   'genetic barcodes and barcoding'
 ```
 
-- Local: `hpluslogs/data/outputs/qwen-genetic-barcoding.{md,html,context.md,context.html,css}`.
+- Local: `hpluslogs/data/outputs/qwen-genetic-barcoding.{md,html,context.md,context.html}`.
+- Shared stylesheet: `hpluslogs/data/outputs/papers.css`, uploaded as `papers.css`.
+  All paper pages reuse it; `--css-file` supplies its contents for the whole publishing directory.
 - Saved JSON: `hpluslogs/data/papers2_local_queries/qwen-genetic-barcoding.json` (also saved on the worker).
 - Default upload: `bryan@gnusha.org:~/public_html/irc/chatgpt/papers2/`.
 - HTML: <https://diyhpl.us/~bryan/irc/chatgpt/papers2/qwen-genetic-barcoding.html>.

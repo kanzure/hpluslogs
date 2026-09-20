@@ -38,7 +38,7 @@ class PaperResultsTest(unittest.TestCase):
         self.assertTrue(all(Path(p).is_file() for p in report['files']))
         html = (self.root/'outputs/barcodes.html').read_text()
         self.assertIn('href="https://example.org/papers2/bio/Genetic%20barcodes.pdf"', html)
-        self.assertIn('href="barcodes.css"', html)
+        self.assertIn('href="papers.css"', html)
         self.assertIn('Genetic barcodes.pdf', html)
         self.assertIn('uniquely identifiable', (self.root/'outputs/barcodes.context.html').read_text())
         self.assertEqual(json.loads(Path(report['result_json']).read_text()), self.result)
@@ -98,8 +98,20 @@ class PaperResultsTest(unittest.TestCase):
             report = pr.publish_result(self.root, self.result, 'barcodes')
         mkdir.assert_called_once_with('bryan', 'gnusha.org', pr.REMOTE_PATH)
         self.assertEqual({c.args[-1] for c in upload.call_args_list}, {
-            'barcodes.css', 'barcodes.context.md', 'barcodes.context.html', 'barcodes.md', 'barcodes.html'})
+            'papers.css', 'barcodes.context.md', 'barcodes.context.html', 'barcodes.md', 'barcodes.html'})
         self.assertEqual(report['uploaded_to'], 'bryan@gnusha.org:'+pr.REMOTE_PATH)
+
+    @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc not installed')
+    def test_multiple_reports_share_one_stylesheet(self):
+        with patch.object(pr.scp, 'ensure_remote_directory', return_value=True), \
+             patch.object(pr.scp, 'upload_file', return_value=True) as upload:
+            for name in ('first', 'second'):
+                pr.publish_result(self.root, self.result, name)
+                for suffix in ('.html', '.context.html'):
+                    self.assertIn('href="papers.css"', (self.root/'outputs'/(name+suffix)).read_text())
+        self.assertEqual([p.name for p in (self.root/'outputs').glob('*.css')], ['papers.css'])
+        css_names = {c.args[-1] for c in upload.call_args_list if c.args[-1].endswith('.css')}
+        self.assertEqual(css_names, {'papers.css'})
 
     @unittest.skipUnless(shutil.which('pandoc'), 'Pandoc not installed')
     def test_render_failure_cannot_upload_stale_html_and_keeps_result(self):

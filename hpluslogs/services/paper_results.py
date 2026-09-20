@@ -11,6 +11,7 @@ from hpluslogs.integrations import scp
 from hpluslogs.services import publishing
 
 REMOTE_PATH = '~/public_html/irc/chatgpt/papers2/'
+STYLESHEET_NAME = 'papers.css'
 
 
 def output_name(value):
@@ -138,7 +139,7 @@ def publish_result(data_dir, result, name, css_file='wrap.css', upload=True,
     saved.write_text(json.dumps(result, indent=2), encoding='utf-8')
     outputs = data_dir/'outputs'
     outputs.mkdir(parents=True, exist_ok=True)
-    stylesheet = outputs/(name+'.css')
+    stylesheet = outputs/STYLESHEET_NAME
     stylesheet.write_bytes(css.read_bytes())
     heading = '# '+label(result['question'])+'\n\n'
     sources, excerpts = [], []
