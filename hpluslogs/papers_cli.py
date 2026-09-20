@@ -14,6 +14,8 @@ from hpluslogs.services import papers, papers_markdown
 def register(cli):
     from hpluslogs.papers_remote_cli import register as register_remote
     register_remote(cli)
+    from hpluslogs.papers_chroma_cli import register as register_chroma
+    register_chroma(cli)
 
     @cli.command('papers-restore')
     @click.option('--repository', default=papers.RESTIC_REPO, required=not bool(papers.RESTIC_REPO),

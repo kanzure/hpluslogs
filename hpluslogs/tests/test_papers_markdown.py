@@ -161,3 +161,16 @@ class MarkdownTest(unittest.TestCase):
             self.assertEqual(fake.InferenceSession('model.onnx').options.intra_op_num_threads, 1)
         with self.assertRaises(ValueError):
             worker.configure_inference_threads(0)
+
+    def test_legacy_filename_uses_document_stream(self):
+        from hpluslogs.services import paper_conversion_worker as worker
+        source = self.data / 'legacy-\udcff.pdf'
+        source.write_bytes(b'%PDF-test')
+        output = self.data / 'legacy.md'
+        with patch.object(worker, 'configure_inference_threads'), \
+             patch('pymupdf.open') as open_pdf, \
+             patch('pymupdf4llm.to_markdown', return_value='# legacy') as convert, \
+             patch.object(worker.sys, 'argv', ['worker', str(source), str(output)]):
+            worker.main()
+        open_pdf.assert_called_once_with(stream=b'%PDF-test', filetype='pdf')
+        convert.assert_called_once_with(open_pdf.return_value, header=False, footer=False)

@@ -371,3 +371,7 @@ Local conversion also defaults to one inference thread per worker. Optional over
 ```bash
 PAPERS_INFERENCE_THREADS=1 python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-markdown --workers 4
 ```
+
+## Local Chroma retrieval and RAG
+
+See [local deployment, progress, queries and updates](papers2-local-rag.md).

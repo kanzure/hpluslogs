@@ -30,7 +30,13 @@ def main():
     configure_inference_threads(int(os.environ.get('PAPERS_INFERENCE_THREADS', '1')))
     import pymupdf4llm
     # Match ~/papers/physical-intelligence/run.py exactly.
-    markdown = pymupdf4llm.to_markdown(sys.argv[1], header=False, footer=False)
+    source = sys.argv[1]
+    if any(0xdc80 <= ord(char) <= 0xdcff for char in source):
+        # MuPDF's filename interface cannot encode legacy Unix filename bytes.
+        # Python can open them losslessly; keep the same document parser.
+        import pymupdf
+        source = pymupdf.open(stream=Path(source).read_bytes(), filetype='pdf')
+    markdown = pymupdf4llm.to_markdown(source, header=False, footer=False)
     if not isinstance(markdown, str) or not markdown.strip():
         raise ValueError('No Markdown text extracted; inspect the PDF/OCR result.')
     Path(sys.argv[2]).write_text(markdown, encoding='utf-8')

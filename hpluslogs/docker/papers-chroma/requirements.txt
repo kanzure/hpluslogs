@@ -1,0 +1,4 @@
+chromadb==1.4.0
+onnxruntime==1.23.2
+click==8.1.8
+requests==2.32.5

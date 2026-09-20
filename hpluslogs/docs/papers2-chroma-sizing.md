@@ -107,3 +107,11 @@ python -m json.tool "$PAPERS_DATA/papers2_chroma_estimate.json"
 
 Runbook/setup: [papers2-commands.md](papers2-commands.md).
 xAI alternative: [papers2-xai-costs.md](papers2-xai-costs.md).
+
+## Local deployment implemented September 19, 2026
+
+The running paper index uses CPU MiniLM-L6-v2, 384-dimensional vectors and
+224-wordpiece chunks with 32 overlap. The Qwen scenarios above remain sizing
+alternatives, not the deployed model. Chroma has a 32 GiB container memory ceiling;
+the four-worker embedding process has a 16 GiB ceiling. Initial observed embedding
+RAM was about 1.7 GiB. See [local RAG commands](papers2-local-rag.md).
