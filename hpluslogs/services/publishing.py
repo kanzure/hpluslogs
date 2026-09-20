@@ -20,6 +20,7 @@ def output(
     remote_host: str = "gnusha.org",
     remote_path: str = "~/public_html/irc/chatgpt/hplusroadmap/",
     prefix: str = "query",
+    strict: bool = False,
 ) -> Optional[Path]:
     """Output content to a markdown file, generate HTML, and optionally upload.
     
@@ -45,7 +46,9 @@ def output(
 
     # Generate HTML, then upload it.
     html_file = outputs_dir / f"{base_name}.html"
-    pandoc.generate_html(md_file, html_file, css_file)
+    rendered = pandoc.generate_html(md_file, html_file, css_file)
+    if strict and not rendered:
+        raise RuntimeError(f"Pandoc failed to render {md_file}; Markdown remains saved.")
     if upload:
         scp.upload_file(html_file, remote_user, remote_host, remote_path, html_file.name)
 
