@@ -63,3 +63,11 @@ def register(cli):
     def watch_restore(obj, **kwargs):
         """Watch a remote restic restore, preserve local progress, then start conversion."""
         invoke('watch_restore', obj, **kwargs)
+
+    @cli.command('papers-remote-monitor')
+    @connection_options
+    @click.option('--interval', type=click.IntRange(min=10), default=300, show_default=True)
+    @click.pass_obj
+    def monitor(obj, **kwargs):
+        """Record progress/ETA every five minutes on the remote host until conversion ends."""
+        invoke('monitor', obj, **kwargs)

@@ -332,3 +332,18 @@ ssh "$PAPERS_TARGET" "docker logs --tail 30 $PAPERS_CONTAINER"
 After handoff, use `papers-remote-progress` for conversion ETA. The completed
 watcher unit can disappear (`--collect`); Docker logs remain available and the
 last watcher state persists in remote `data/papers2_restore_watch.json`.
+
+## Automatic progress history — every five minutes, until conversion exits
+
+```bash
+python -m hpluslogs.cli --data-dir "$PAPERS_DATA" papers-remote-monitor \
+  "${PAPERS_REMOTE[@]}" --interval 300
+ssh "$PAPERS_TARGET" "journalctl --user -u ${PAPERS_CONTAINER}-progress.service -n 10 --no-pager"
+ssh "$PAPERS_TARGET" "journalctl --user -u ${PAPERS_CONTAINER}-progress.service --follow"
+```
+
+The host records `data/papers2_progress_latest.json` and
+`data/papers2_progress_history.jsonl`, including ready/failed counts, Markdown
+size, ETA, costs and container status. Survives SSH disconnection; records a final
+snapshot and exits when conversion stops. This saves reports on the host; it does
+not send chat messages. Start it again for a subsequent conversion run.

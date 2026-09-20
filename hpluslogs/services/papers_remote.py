@@ -266,3 +266,22 @@ def watch_restore(data_dir, remote, staging_name='papers2-restic', workers=48, t
                      f'mv {q(remote.path+"/data/conversion-seed.sqlite3")} '
                      f'{q(remote.path+"/data/papers2_markdown.sqlite3")}; fi; touch {q(ready_path)}')
         click.echo(f'Watcher ready: {service}. It will verify the restored PDFs and start {workers} workers automatically.')
+
+
+def monitor(remote, interval=300):
+    """Record periodic progress on the host, independently of the chat/session."""
+    unit = remote.name+'-progress'
+    active = remote.command('systemctl', '--user', 'show', unit+'.service',
+                            '--property=ActiveState', '--value', capture=True).stdout.strip()
+    if active in ('active', 'activating'):
+        click.echo(f'Progress reporter already running: {unit}')
+        return
+    remote.command('mkdir', '-p', remote.path+'/watcher')
+    script = Path(__file__).resolve().parents[1]/'scripts/report_papers_progress.py'
+    remote.rsync(str(script), remote.location('watcher/report_papers_progress.py'))
+    remote.command('systemd-run', '--user', '--collect', '--unit', unit,
+                   '--property=Restart=on-failure', '--property=RestartSec=60',
+                   '--property=StartLimitIntervalSec=0', '/usr/bin/python3', '-u',
+                   remote.path+'/watcher/report_papers_progress.py', '--container', remote.name,
+                   '--data-dir', remote.path+'/data', '--interval', str(interval))
+    click.echo(f'Recording progress every {interval} seconds until the converter exits: {unit}')
