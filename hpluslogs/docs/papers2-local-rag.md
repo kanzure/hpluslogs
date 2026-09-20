@@ -21,7 +21,7 @@ PAPERS_REMOTE=(--host "$PAPERS_HOST" --user "$PAPERS_USER" --path "$PAPERS_PATH"
 PAPERS_CONTAINER="hpluslogs-papers-$(python -c 'import hashlib,sys; from pathlib import PurePosixPath; print(hashlib.sha256(str(PurePosixPath(sys.argv[1])).encode()).hexdigest()[:12])' "$PAPERS_PATH")"
 CHROMA_CONTAINER="${PAPERS_CONTAINER}-chroma"
 PAPERS_LLM_MODEL=your-local-served-model-name
-CHROMA_DATA_PATH=/srv/storage/rust1/hpluslogs-papers-chroma
+CHROMA_DATA_PATH=/srv/storage/disk01/hpluslogs-papers-chroma
 PAPERS_ENV_FILE="$PAPERS_PATH/config/openrouter.env"
 ```
 
@@ -39,7 +39,7 @@ python hpluslogs/scripts/deploy_papers_chroma.py "${PAPERS_REMOTE[@]}" \
 ```
 
 Chroma listens on remote loopback only. Its vectors, documents and index are
-stored at `CHROMA_DATA_PATH` on rust1. Conversion data and resumable checkpoints
+stored at `CHROMA_DATA_PATH` on the SSD. Conversion data and resumable checkpoints
 remain under `$PAPERS_PATH/data`. No rust2 storage is used.
 The indexer watches completed Markdown every 120 seconds; both containers restart
 after reboot. Hash checkpoints and cached embedding batches preserve progress.
@@ -114,8 +114,10 @@ ssh "$PAPERS_TARGET" "docker start ${CHROMA_CONTAINER}-index"
 
 - Host: `kanzure@bigboy.local`; root: `/home/kanzure/hpluslogs-papers-conversion`.
 - Chroma 1.4.0 on `127.0.0.1:18081`; collection `papers2_qwen3_8b_4096_v1`.
-- Chroma storage: `/srv/storage/rust1/hpluslogs-papers-chroma`; 96 GiB RAM limit.
-- First live OpenRouter batch: 1,000 stored vectors, 187,811 billed tokens, $0.00187811.
+- Chroma storage: `/srv/storage/disk01/hpluslogs-papers-chroma`; 96 GiB RAM limit.
+- First complete paper: 4,522 stored vectors, 842,914 billed tokens, $0.00842914.
+- SSD migration preserved the collection and vectors; the stopped rust1 copy remains a backup.
+- `/srv/storage/disk01`: nonrotating 7.3 TiB device, 5.1 TiB free. The dedicated model NVMe had only 77 GiB free, insufficient for the projected store plus headroom.
 - Local answer endpoint: `http://127.0.0.1:8080/v1`; model `qwen-flash-next-uncensored-sglang`.
 - Old MiniLM query artifacts are historical; they do not validate Qwen coverage.
 

@@ -68,7 +68,7 @@ Exact measured snapshot: [papers2-openrouter-estimate-2026-09-19.json](papers2-o
 
 **bigboy.local has enough RAM:** 372.9 GiB total, approximately 257 GiB available
 at the latest check. The Chroma store is now on
-`/srv/storage/rust1/hpluslogs-papers-chroma`, with about **14 TiB free** at the
+`/srv/storage/disk01/hpluslogs-papers-chroma`, with about **5.1 TiB free** at the
 September 19 deployment check. The conversion root remains on the system disk;
 rust2 is not used.
 Disk planning uses 2–4× vector payload; actual Chroma usage varies with index,
