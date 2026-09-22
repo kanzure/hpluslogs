@@ -151,13 +151,17 @@ PAPERS_BRIEF=1 hpluslogs/papers-query 'genetic barcodes and barcoding'
 PAPERS_MAX_ANSWER_TOKENS=12000 hpluslogs/papers-query 'genetic barcodes and barcoding'
 
 # Optional name and retrieval limit:
-PAPERS_OUTPUT_NAME=mitochondria-aging PAPERS_TOP_K=20 \
-  hpluslogs/papers-query 'How do mitochondria contribute to aging?'
+PAPERS_TOP_K=20 \
+  hpluslogs/papers-query -o mitochondria-aging 'How do mitochondria contribute to aging?'
 
 # First-time setup on another machine; edit worker/model settings:
 cp hpluslogs/.papers-query.env.example hpluslogs/.papers-query.env
 ${EDITOR:-vi} hpluslogs/.papers-query.env
 ```
+
+Use `-o NAME` or `--output-name NAME` to set the filename without extension.
+This overrides `PAPERS_OUTPUT_NAME`, which remains supported; otherwise the name
+defaults to a timestamp.
 
 The script and example are committed; machine-specific settings are ignored by Git.
 Requires `hpluslogs/venv`, local Pandoc, and SSH access to both hosts.

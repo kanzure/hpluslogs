@@ -3,14 +3,18 @@
 set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [[ $# -eq 1 && ( "$1" == --help || "$1" == -h ) ]]; then
+usage() {
     cat <<'HELP'
-Usage: hpluslogs/papers-query 'Your question about the papers'
+Usage: hpluslogs/papers-query [-o NAME] 'Your question about the papers'
 
 Queries Chroma and the worker's LLM, renders Markdown/HTML locally, uploads
 both to the publishing server, and prints their public URLs.
 No virtualenv activation needed. Settings: hpluslogs/.papers-query.env
 (or PAPERS_QUERY_CONFIG). See .papers-query.env.example for first-time setup.
+
+Options:
+  -o, --output-name NAME     Filename without extension; overrides PAPERS_OUTPUT_NAME
+  -h, --help                Show this help
 
 Optional environment overrides:
   PAPERS_TOP_K=300           Maximum retrieved passages (any positive integer)
@@ -20,10 +24,41 @@ Optional environment overrides:
   PAPERS_BRIEF=1             Concise answer instead of the default technical report
   PAPERS_MAX_ANSWER_TOKENS=8192  Override report output token limit
 HELP
-    exit 0
-fi
+}
+output_name=''
+questions=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o|--output-name)
+            if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+                printf '%s requires a filename without extension.\n' "$1" >&2
+                exit 2
+            fi
+            output_name="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            questions+=("$@")
+            break
+            ;;
+        -*)
+            printf 'Unknown option: %s\n' "$1" >&2
+            exit 2
+            ;;
+        *)
+            questions+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- "${questions[@]}"
 if [[ $# -ne 1 || -z "$1" ]]; then
-    printf "Usage: %s 'Your question about the papers'\n" "$0" >&2
+    usage >&2
     exit 2
 fi
 
@@ -44,7 +79,7 @@ if [[ ! -x "$python" ]]; then
     printf 'Python environment missing: %s (or set PAPERS_PYTHON).\n' "$python" >&2
     exit 2
 fi
-name="${PAPERS_OUTPUT_NAME:-papers_$(date -u +%Y%m%dT%H%M%S_%N)}"
+name="${output_name:-${PAPERS_OUTPUT_NAME:-papers_$(date -u +%Y%m%dT%H%M%S_%N)}}"
 analysis_options=(--prompt-fragment "${PAPERS_PROMPT_FRAGMENT:-}")
 if [[ "${PAPERS_BRIEF:-0}" == 1 ]]; then
     analysis_options+=(--brief)
