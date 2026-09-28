@@ -229,6 +229,12 @@ def generate_search_query(prompt_fragment: str, model: str, for_mycollection: bo
 - **Commands**: `diyhplus-fetch`, `diyhplus-collect`, `diyhplus-query`
 - **Config file**: `data/diyhplus_collection.json`
 
+### diyhplus (wiki)
+- **Source**: diyhpluswiki (http://diyhpl.us/wiki/), an ikiwiki git repo of `.mdwn` pages covering DIY biohacking, longevity interventions, and related open-source hardware/biotech notes
+- **Raw data**: `data/raw-more/diyhpl.us/` (git checkout maintained by `diyhplus-fetch`)
+- **Commands**: `diyhplus-fetch`, `diyhplus-collect`, `diyhplus-query`
+- **Config file**: `data/diyhplus_collection.json`
+
 ### grg (mailing list)
 - **Source**: Gerontology Research Group mailing list archives (supercentenarian research, age validation)
 - **Raw data**: `data/raw-more/grg/`
