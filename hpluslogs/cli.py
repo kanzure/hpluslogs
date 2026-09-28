@@ -15,9 +15,9 @@ from typing import Optional
 
 import click
 
-from hpluslogs.core.prompts import AAF_SYSTEM_PROMPT, FIGHTAGING_SYSTEM_PROMPT, GRG_SYSTEM_PROMPT, LESSWRONG_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT
+from hpluslogs.core.prompts import AAF_SYSTEM_PROMPT, DIYHPLUS_SYSTEM_PROMPT, FIGHTAGING_SYSTEM_PROMPT, GRG_SYSTEM_PROMPT, LESSWRONG_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT
 from hpluslogs.core.utils import ensure_directory, token_count
-from hpluslogs.services import download, embedding, generation, preprocess, publishing, search, summarize, summary_index, xai_upload
+from hpluslogs.services import download, embedding, generation, ingest, preprocess, publishing, search, summarize, summary_index, xai_upload
 
 
 ###############################################################################
@@ -957,6 +957,146 @@ def aaf_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: in
     publishing.output(
         data_dir, answer, output_name, css_file, upload,
         remote_user, remote_host, remote_path, prefix="aaf_query"
+    )
+
+
+@cli.command("diyhplus-fetch")
+@click.option("--repo-url", default=None,
+              help="Git URL of the diyhpluswiki source repository "
+                   "(default: git://diyhpl.us/diyhpluswiki).")
+@click.option("--resume/--no-resume", default=True,
+              help="Refresh the existing checkout in place (fast-forward pull); "
+                   "--no-resume re-clones from scratch.")
+@click.pass_obj
+def diyhplus_fetch_cmd(obj: dict, repo_url: Optional[str], resume: bool) -> None:
+    """Clone or refresh the diyhpl.us wiki source checkout under the data dir."""
+    ingest.run_diyhplus(obj["data_dir"], repo_url=repo_url, resume=resume)
+
+
+@cli.command("diyhplus-collect")
+@click.option("--collection-name", default="diyhplus-wiki",
+              help="Name for the xAI collection.")
+@click.option("--chunk-size", default=500, type=int,
+              help="Maximum tokens per chunk (server-side chunking).")
+@click.option("--chunk-overlap", default=50, type=int,
+              help="Token overlap between chunks.")
+@click.option("--resume/--no-resume", default=True,
+              help="Skip files that have already been uploaded.")
+@click.option("--concurrency", type=int, default=100,
+              help="Number of concurrent upload requests (default: 100).")
+@click.option("--wait-for-indexing/--no-wait-for-indexing", default=False,
+              help="Wait for each document to be indexed before continuing.")
+@click.pass_obj
+def diyhplus_collect_cmd(obj: dict, collection_name: str, chunk_size: int, chunk_overlap: int,
+                         resume: bool, concurrency: int, wait_for_indexing: bool) -> None:
+    """Upload diyhplus wiki pages to xAI Collections."""
+    xai_upload.run_diyhplus(
+        obj["data_dir"], collection_name, chunk_size, chunk_overlap,
+        resume, concurrency, wait_for_indexing
+    )
+
+
+@cli.command("diyhplus-query")
+@click.option("--collection-id", default=None,
+              help="xAI collection ID. If not provided, reads from data_dir/diyhplus_collection.json.")
+@click.option("--model", default="openrouter/x-ai/grok-4-fast",
+              help="LLM model to use for answering queries (via OpenRouter).")
+@click.option("--top-k", default=100, type=int,
+              help="Number of search results to retrieve.")
+@click.option("--search-mode", type=click.Choice(["hybrid", "semantic", "keyword"]), default="semantic",
+              help="Search mode: hybrid, semantic (default), or keyword.")
+@click.option("--nollm", is_flag=True, default=False,
+              help="Skip LLM generation (print retrieved context only).")
+@click.option("--prompt-fragment", default="",
+              help="Additional instructions to add to the LLM prompt.")
+@click.option("--output-name", default=None,
+              help="Base filename for output (without extension).")
+@click.option("--css-file", default="wrap.css",
+              help="CSS file to use with pandoc for HTML generation.")
+@click.option("--upload/--no-upload", default=True,
+              help="Upload files to server via scp.")
+@click.option("--remote-user", default="bryan",
+              help="Remote SSH user for upload.")
+@click.option("--remote-host", default="gnusha.org",
+              help="Remote SSH host for upload.")
+@click.option("--remote-path", default="~/public_html/irc/chatgpt/diyhplus/",
+              help="Remote path for upload.")
+@click.option("--cleanpass/--no-cleanpass", default=False,
+              help="Run a cleaning pass on context to remove redundancy and formatting artifacts.")
+@click.argument("query", required=False, default="")
+@click.pass_obj
+def diyhplus_query_cmd(obj: dict, collection_id: Optional[str], model: str, top_k: int, search_mode: str,
+                       nollm: bool, prompt_fragment: str, output_name: Optional[str],
+                       css_file: str, upload: bool, remote_user: str, remote_host: str, remote_path: str,
+                       cleanpass: bool, query: str) -> None:
+    """Query the diyhplus wiki collection and generate an answer."""
+    data_dir: Path = obj["data_dir"]
+    config_file = data_dir / "diyhplus_collection.json"
+
+    # Get collection ID
+    if collection_id is None:
+        if not config_file.exists():
+            raise click.UsageError("No collection ID provided and no diyhplus_collection.json found. Run diyhplus-collect first.")
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        collection_id = config.get("collection_id")
+        if not collection_id:
+            raise click.UsageError("No collection_id found in diyhplus_collection.json")
+
+    # Determine search query
+    search_query = query
+    if not query and prompt_fragment:
+        click.echo("No query provided. Generating search terms from prompt-fragment using LLM...\n")
+        search_query = generation.generate_search_query(prompt_fragment, model, for_diyhplus=True)
+        click.echo(f"Generated search query: {search_query}\n")
+    elif not query and not prompt_fragment:
+        raise click.UsageError("Either a query argument or --prompt-fragment must be provided.")
+
+    # Search
+    click.echo(f"Searching collection {collection_id}...")
+    click.echo(f"Search mode: {search_mode}, Top-K: {top_k}")
+
+    results = search.retrieve(
+        data_dir, search_query, top_k, backend="xai",
+        collection_id=collection_id, search_mode=search_mode
+    )
+
+    context = generation.format_context(results)
+    click.echo(f"\nRetrieved {len(results)} matches.")
+
+    # Clean pass to remove redundancy and formatting artifacts
+    if cleanpass:
+        click.echo("Running cleaning pass on context...")
+        context = generation.clean_context(context)
+        click.echo("Cleaning pass complete.\n")
+
+    click.echo(f"\nContext: <context>{context}</context>\n\n")
+
+    # Upload context file before LLM call
+    publishing.output_context(
+        data_dir, context, search_query,
+        output_name=output_name, css_file=css_file, upload=upload,
+        remote_user=remote_user, remote_host=remote_host, remote_path=remote_path,
+        prefix="diyhplus_query"
+    )
+
+    if nollm:
+        click.echo("\nFull context:")
+        click.echo(context)
+        click.echo("\nExiting due to --nollm flag.")
+        return
+
+    context_tokens = token_count(context)
+    click.echo(f"Context length: {context_tokens} tokens\n")
+
+    # Generate answer
+    click.echo("Asking the LLM...\n")
+    answer = generation.generate_answer(search_query, results, model, prompt_fragment, DIYHPLUS_SYSTEM_PROMPT, context_override=context)
+    click.echo("\n" + answer.strip())
+
+    # Publish output
+    publishing.output(
+        data_dir, answer, output_name, css_file, upload,
+        remote_user, remote_host, remote_path, prefix="diyhplus_query"
     )
 
 

@@ -9,7 +9,7 @@ from typing import List, Optional, Set, Tuple
 
 import click
 
-from hpluslogs.integrations import xai
+from hpluslogs.integrations import diyhplus, xai
 
 
 async def upload_file_async(
@@ -19,19 +19,22 @@ async def upload_file_async(
     semaphore: asyncio.Semaphore,
     fields: dict,
     wait_for_indexing: bool = False,
+    file_key: str = "",
 ) -> Tuple[str, bool, Optional[str]]:
     """Upload a single file to xAI collection asynchronously.
     
-    Returns a tuple of (filename, success, file_id_or_error).
+    Returns a tuple of (file_key, success, file_id_or_error). The caller-supplied
+    ``file_key`` is echoed back so results can be matched to inputs even when
+    several files share a basename (e.g. nested ``index.mdwn`` wiki pages).
     """
     async with semaphore:
         try:
             file_id = await xai.upload_document_async(
                 client, collection_id, log_file, fields, wait_for_indexing
             )
-            return (log_file.name, True, file_id)
+            return (file_key or log_file.name, True, file_id)
         except Exception as e:
-            return (log_file.name, False, str(e))
+            return (file_key or log_file.name, False, str(e))
 
 
 async def upload_files_async(
@@ -66,10 +69,14 @@ async def upload_files_async(
     
     click.echo(f"Uploading {len(files_to_upload)} files with concurrency={concurrency}...")
     
-    # Create upload tasks
+    # Create upload tasks. Each task carries its own file key so completed
+    # results map back to the right input without basename lookups.
     tasks = [
-        upload_file_async(client, collection_id, file_path, semaphore, fields, wait_for_indexing)
-        for file_path, fields, _ in files_to_upload
+        upload_file_async(
+            client, collection_id, file_path, semaphore, fields,
+            wait_for_indexing, file_key,
+        )
+        for file_path, fields, file_key in files_to_upload
     ]
     
     # Process with progress reporting
@@ -77,12 +84,8 @@ async def upload_files_async(
     failed_count = 0
     newly_uploaded = set()
     
-    file_keys = [file_key for _, _, file_key in files_to_upload]
-    
     for i, coro in enumerate(asyncio.as_completed(tasks), 1):
-        filename, success, result = await coro
-        # Find the file_key for this filename
-        file_key = next((fk for fp, _, fk in files_to_upload if fp.name == filename), filename)
+        file_key, success, result = await coro
         if success:
             click.echo(f"[{i}/{len(tasks)}] ✓ {file_key} -> {result}")
             newly_uploaded.add(file_key)
@@ -487,6 +490,92 @@ def run_aaf(
             wait_for_indexing=wait_for_indexing,
             resume=resume,
             file_key_fn=aaf_file_key,
+        )
+    )
+
+    # Update config with newly uploaded files
+    if newly_uploaded:
+        uploaded_files.update(newly_uploaded)
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        config["uploaded_files"] = list(uploaded_files)
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    click.echo(f"\nDone! Uploaded: {uploaded_count}, Failed: {failed_count}, Total in collection: {len(uploaded_files)}")
+    click.echo(f"Collection ID: {collection_id}")
+    if not wait_for_indexing and uploaded_count > 0:
+        click.echo("\nNote: Documents were uploaded without waiting for indexing.")
+
+
+def run_diyhplus(
+    data_dir: Path,
+    collection_name: str = "diyhplus-wiki",
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+    resume: bool = True,
+    concurrency: int = 100,
+    wait_for_indexing: bool = False,
+) -> None:
+    """Upload diyhplus wiki pages to xAI Collections (recursively)."""
+    raw_dir = data_dir / "raw-more" / "diyhpl.us"
+    config_file = data_dir / "diyhplus_collection.json"
+
+    if not raw_dir.exists():
+        raise click.UsageError(f"diyhplus wiki directory does not exist: {raw_dir}")
+
+    # Collect wiki text sources recursively; relative paths keep the
+    # bookkeeping stable across re-clones of the underlying git checkout.
+    all_files: List[Tuple[Path, dict]] = []
+    for f in sorted(raw_dir.rglob("*")):
+        if diyhplus.is_page(f):
+            rel_path = f.relative_to(raw_dir)
+            all_files.append((f, {"filename": str(rel_path)}))
+
+    if not all_files:
+        click.echo("No wiki pages found to upload.")
+        return
+
+    click.echo(f"Found {len(all_files)} wiki pages (recursive)")
+
+    # Check if we have an existing collection
+    collection_id = None
+    uploaded_files: Set[str] = set()
+    if config_file.exists():
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        collection_id = config.get("collection_id")
+        uploaded_files = set(config.get("uploaded_files", []))
+        click.echo(f"Found existing collection: {collection_id}")
+        click.echo(f"Already uploaded: {len(uploaded_files)} files")
+
+    # Create collection if needed
+    if collection_id is None:
+        click.echo(f"Creating collection '{collection_name}'...")
+        collection_id = xai.create_collection(
+            name=collection_name,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            field_definitions=[
+                {"key": "filename", "required": True, "unique": False, "inject_into_chunk": True},
+            ],
+        )
+        click.echo(f"Created collection: {collection_id}")
+
+        config = {"collection_id": collection_id, "collection_name": collection_name, "uploaded_files": []}
+        config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    # File key function uses the relative page path
+    def diyhplus_file_key(f: Path, fields: dict) -> str:
+        return fields["filename"]
+
+    click.echo(f"\nTotal files: {len(all_files)}, Already uploaded: {len(uploaded_files)}")
+    uploaded_count, failed_count, newly_uploaded = asyncio.run(
+        upload_files_async(
+            collection_id=collection_id,
+            files=all_files,
+            uploaded_files=uploaded_files,
+            concurrency=concurrency,
+            wait_for_indexing=wait_for_indexing,
+            resume=resume,
+            file_key_fn=diyhplus_file_key,
         )
     )
 

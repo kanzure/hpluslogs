@@ -15,12 +15,14 @@ hpluslogs/
 ├── integrations/       # External service adapters (API wrappers)
 │   ├── chroma.py       # Local Chroma vector database
 │   ├── gnusha.py       # gnusha.org IRC log fetcher
+│   ├── diyhplus.py     # diyhpl.us wiki git checkout fetcher
 │   ├── openrouter.py   # OpenRouter API (embeddings + completions)
 │   ├── pandoc.py       # Pandoc HTML generation
 │   ├── scp.py          # SCP file upload
 │   └── xai.py          # xAI Collections API
 ├── services/           # Business logic orchestration
 │   ├── download.py     # Fetch raw data from sources
+│   ├── ingest.py       # Clone/refresh the diyhplus wiki checkout
 │   ├── embedding.py    # Vectorize chunks into Chroma
 │   ├── generation.py   # Build prompts and call LLMs
 │   ├── preprocess.py   # Convert raw data to JSONL chunks
@@ -214,6 +216,18 @@ def generate_search_query(prompt_fragment: str, model: str, for_mycollection: bo
 - **Raw data**: `data/raw-more/orionsarm/`
 - **Commands**: `orionsarm-collect`, `orionsarm-query`
 - **Config file**: `data/orionsarm_collection.json`
+
+### diyhplus (wiki)
+- **Source**: diyhpluswiki — the diyhpl.us wiki of DIY biohacking, open source hardware, and human enhancement projects (ikiwiki `.mdwn` sources, fetched with `git clone`, default `git://diyhpl.us/diyhpluswiki`)
+- **Raw data**: `data/raw-more/diyhpl.us/`
+- **Commands**: `diyhplus-fetch`, `diyhplus-collect`, `diyhplus-query`
+- **Config file**: `data/diyhplus_collection.json`
+
+### diyhplus (wiki)
+- **Source**: diyhpl.us wiki (ikiwiki git repository of `.mdwn` markdown pages)
+- **Raw data**: `data/raw-more/diyhpl.us/` (git checkout, refreshed in place)
+- **Commands**: `diyhplus-fetch`, `diyhplus-collect`, `diyhplus-query`
+- **Config file**: `data/diyhplus_collection.json`
 
 ### grg (mailing list)
 - **Source**: Gerontology Research Group mailing list archives (supercentenarian research, age validation)
