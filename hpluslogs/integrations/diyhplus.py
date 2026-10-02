@@ -56,8 +56,8 @@ def clone_or_update(
 
 
 def is_page(path: Path) -> bool:
-    """True when ``path`` looks like an indexable wiki text source."""
-    return path.is_file() and path.suffix.lower() in PAGE_SUFFIXES
+    """True when ``path`` is a nonempty, indexable wiki text source."""
+    return path.is_file() and path.suffix.lower() in PAGE_SUFFIXES and path.stat().st_size > 0
 
 
 def iter_pages(root: Path) -> List[Tuple[Path, str]]:

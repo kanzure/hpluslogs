@@ -55,6 +55,11 @@ def test_is_page_accepts_wiki_text_suffixes(tmp_path: Path) -> None:
     assert not diyhplus.is_page(png)
     assert not diyhplus.is_page(tmp_path)
 
+    # xAI rejects zero-byte uploads; empty wiki placeholders are not pages.
+    empty = tmp_path / "placeholder.mdwn"
+    empty.touch()
+    assert not diyhplus.is_page(empty)
+
 
 ###############################################################################
 # Fetch service
