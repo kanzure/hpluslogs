@@ -225,6 +225,18 @@ def generate_search_query(prompt_fragment: str, model: str, for_mycollection: bo
 - **Commands**: `diyhplus-fetch`, `diyhplus-collect`, `diyhplus-query`
 - **Config file**: `data/diyhplus_collection.json`
 
+From the repository root, use the virtualenv and the same data directory for each command:
+
+```bash
+source hpluslogs/venv/bin/activate
+python -m hpluslogs.cli --data-dir hpluslogs/data diyhplus-fetch
+python -m hpluslogs.cli --data-dir hpluslogs/data diyhplus-collect --wait-for-indexing
+python -m hpluslogs.cli --data-dir hpluslogs/data diyhplus-query 'cryonics' --top-k 5 --nollm --no-upload
+python -m hpluslogs.cli --data-dir hpluslogs/data diyhplus-query 'What cryonics organizations are discussed in the wiki?' --top-k 5 --no-upload
+```
+
+Empty source files are skipped. The query command defaults to `openrouter/x-ai/grok-4.3`; override it with `--model` when needed. `--nollm` retrieves passages without generating an answer. `--no-upload` keeps query outputs local.
+
 ### grg (mailing list)
 - **Source**: Gerontology Research Group mailing list archives (supercentenarian research, age validation)
 - **Raw data**: `data/raw-more/grg/`

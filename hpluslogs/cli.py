@@ -1000,7 +1000,7 @@ def diyhplus_collect_cmd(obj: dict, collection_name: str, chunk_size: int, chunk
 @cli.command("diyhplus-query")
 @click.option("--collection-id", default=None,
               help="xAI collection ID. If not provided, reads from data_dir/diyhplus_collection.json.")
-@click.option("--model", default="openrouter/x-ai/grok-4-fast",
+@click.option("--model", default="openrouter/x-ai/grok-4.3",
               help="LLM model to use for answering queries (via OpenRouter).")
 @click.option("--top-k", default=100, type=int,
               help="Number of search results to retrieve.")
