@@ -9,6 +9,8 @@ from litellm import completion as litellm_completion
 from hpluslogs.core.prompts import (
     AAF_SEARCH_QUERY_PROMPT,
     AAF_SYSTEM_PROMPT,
+    DIYHPLUS_SEARCH_QUERY_PROMPT,
+    DIYHPLUS_SYSTEM_PROMPT,
     CONTEXT_CLEANING_PROMPT,
     FIGHTAGING_SEARCH_QUERY_PROMPT,
     FIGHTAGING_SYSTEM_PROMPT,
@@ -83,6 +85,7 @@ def generate_search_query(
     for_orionsarm: bool = False,
     for_grg: bool = False,
     for_aaf: bool = False,
+    for_diyhplus: bool = False,
 ) -> str:
     """Generate search terms from a user request."""
     if for_fightaging:
@@ -95,6 +98,8 @@ def generate_search_query(
         prompt = GRG_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
     elif for_aaf:
         prompt = AAF_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
+    elif for_diyhplus:
+        prompt = DIYHPLUS_SEARCH_QUERY_PROMPT.format(prompt_fragment=prompt_fragment)
     else:
         prompt = SEARCH_QUERY_GENERATION_PROMPT.format(prompt_fragment=prompt_fragment)
     return openrouter.complete(prompt, model).strip()
@@ -142,6 +147,9 @@ def format_context(chunks: List[Dict[str, Any]]) -> str:
             filename = meta.get('filename', 'unknown')
             score_str = f"{score:.4f}" if score is not None else "?"
             header = f"[Source: {meta['source_type']}, File: {filename}, Score: {score_str}]"
+        elif "filename" in meta:
+            score_str = f"{score:.4f}" if score is not None else "?"
+            header = f"[Source: {meta['filename']}, Score: {score_str}]"
         else:
             score_str = f"{score:.4f}" if score is not None else "?"
             header = f"[Score: {score_str}]"
